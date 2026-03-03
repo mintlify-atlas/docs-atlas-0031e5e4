@@ -1,0 +1,85 @@
+{
+  "projectType": "sdk-library",
+  "projectName": "Ngememoize",
+  "projectDescription": "A lightweight Angular memoization library for caching function results and computed properties",
+  "theme": "palm",
+  "primaryColor": "#DD0031",
+  "lightColor": "#F24250",
+  "darkColor": "#C3002F",
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Getting Started",
+            "pages": [
+              "introduction",
+              "installation",
+              "quickstart"
+            ]
+          },
+          {
+            "group": "Core Concepts",
+            "pages": [
+              "concepts/memoization",
+              "concepts/cache-management",
+              "concepts/key-generation"
+            ]
+          },
+          {
+            "group": "Guides",
+            "pages": [
+              "guides/basic-usage",
+              "guides/advanced-options",
+              "guides/async-functions",
+              "guides/debugging"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "API Reference",
+        "groups": [
+          {
+            "group": "Decorator",
+            "pages": [
+              "api/ngememoize-decorator"
+            ]
+          },
+          {
+            "group": "Service",
+            "pages": [
+              "api/ngememoize-service"
+            ]
+          },
+          {
+            "group": "Types",
+            "pages": [
+              "api/types",
+              "api/interfaces"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "keyFeatures": [
+    "Decorator-based memoization for functions and getters",
+    "Configurable cache with maxAge and maxSize options",
+    "Cache statistics and monitoring",
+    "Custom key generation and equality comparison",
+    "Promise/async function support",
+    "Debug mode with cache hit/miss logging",
+    "Tree-shakable and lightweight"
+  ],
+  "publicApiSurface": [
+    "@Ngememoize() - Decorator for memoizing methods and getters",
+    "NgememoizeService - Service for cache management and statistics",
+    "MemoizeOptions - Configuration options interface",
+    "CacheMap - Type for cache storage",
+    "CacheStats - Interface for cache statistics",
+    "KeyGeneratorFunction - Type for custom key generators",
+    "EqualityComparator - Type for custom equality functions"
+  ]
+}
