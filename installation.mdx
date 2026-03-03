@@ -1,0 +1,150 @@
+---
+title: Installation
+description: Add Ngememoize to your Angular project
+---
+
+Get started with Ngememoize by installing the package and setting up your first memoized function.
+
+## Prerequisites
+
+Before installing Ngememoize, ensure your project meets these requirements:
+
+- **Angular 19 or later** - Ngememoize requires Angular 19.0.0+
+- **TypeScript** - Modern TypeScript support (comes with Angular)
+- **Node.js** - For package management with npm, yarn, or pnpm
+
+## Install the package
+
+<Steps>
+  <Step title="Choose your package manager">
+    Install Ngememoize using your preferred package manager:
+
+    <CodeGroup>
+      ```bash npm
+      npm install ngememoize
+      ```
+
+      ```bash yarn
+      yarn add ngememoize
+      ```
+
+      ```bash pnpm
+      pnpm add ngememoize
+      ```
+    </CodeGroup>
+
+    The package will be added to your `package.json` dependencies.
+  </Step>
+
+  <Step title="Verify installation">
+    Check that Ngememoize was installed successfully:
+
+    ```bash
+    npm list ngememoize
+    ```
+
+    You should see the installed version (current version: `0.0.2`).
+  </Step>
+</Steps>
+
+## Peer dependencies
+
+Ngememoize requires the following Angular packages as peer dependencies:
+
+```json
+{
+  "@angular/common": "^19.0.0",
+  "@angular/core": "^19.0.0"
+}
+```
+
+These should already be installed in your Angular project. If you're starting a new project, they'll be included when you create it with Angular CLI.
+
+<Note>
+  Ngememoize uses the `hash-it` library internally for optimized key generation. This is installed automatically as a dependency.
+</Note>
+
+## Import the decorator
+
+Once installed, you can import the `@Ngememoize` decorator in any component, service, or class:
+
+```typescript
+import { Ngememoize } from 'ngememoize';
+```
+
+For TypeScript type definitions, you can also import types:
+
+```typescript
+import { Ngememoize, MemoizeOptions } from 'ngememoize';
+```
+
+## Optional: Import the service
+
+If you want to access cache statistics or manage caches programmatically, import the service:
+
+```typescript
+import { NgememoizeService } from 'ngememoize';
+
+export class MyComponent {
+  memoizeService = inject(NgememoizeService);
+
+  logCacheStats() {
+    console.log('All caches:', this.memoizeService.getAllCache());
+  }
+}
+```
+
+<Tip>
+  The `NgememoizeService` is automatically created when you use the `@Ngememoize` decorator. You only need to inject it if you want to inspect or manage caches manually.
+</Tip>
+
+## No additional setup required
+
+Unlike some Angular libraries, Ngememoize doesn't require:
+
+- Module imports (works with standalone components)
+- Provider configuration
+- App configuration changes
+- Build tool modifications
+
+Simply install the package and start using the decorator.
+
+## Verify it works
+
+Create a simple test to ensure everything is working:
+
+```typescript
+import { Component } from '@angular/core';
+import { Ngememoize } from 'ngememoize';
+
+@Component({
+  selector: 'app-test',
+  standalone: true,
+  template: '<button (click)="test()">Test Memoize</button>'
+})
+export class TestComponent {
+  @Ngememoize({ debugLabel: 'testMethod' })
+  testMethod(value: number): number {
+    console.log('Computing...');
+    return value * 2;
+  }
+
+  test() {
+    console.log(this.testMethod(5)); // Should log "Computing..." then 10
+    console.log(this.testMethod(5)); // Should only log 10 (cached)
+  }
+}
+```
+
+Click the button and check your browser console. The first call should log "Computing..." followed by `10`. The second call should only log `10` because the result was cached.
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="Quick start guide" icon="rocket" href="/quickstart">
+    Learn basic memoization patterns
+  </Card>
+  <Card title="Advanced options" icon="sliders" href="/guides/advanced-options">
+    Explore all available decorator options
+  </Card>
+</CardGroup>

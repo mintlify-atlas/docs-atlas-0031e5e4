@@ -1,0 +1,343 @@
+---
+title: Cache management
+description: Understand how Ngememoize manages caches, tracks statistics, and provides cache invalidation strategies
+---
+
+## How the cache works internally
+
+Ngememoize uses the `NgememoizeService` as the central hub for managing all memoization caches. This service is provided at the root level, ensuring a single instance across your entire Angular application.
+
+### Cache storage structure
+
+Each memoized method gets its own isolated cache, identified by a combination of the class name and method name:
+
+```typescript
+// From ngememoize.service.ts:11-12
+private caches: Map<string, CacheMap<any>> = new Map();
+private stats: Map<string, { hits: number; misses: number }> = new Map();
+```
+
+The service maintains two parallel data structures:
+- **caches**: Stores the actual cached values, keyed by cache identifier
+- **stats**: Tracks hits and misses for each cache
+
+### Cache entry structure
+
+Each cached value is stored with metadata:
+
+```typescript
+interface CacheEntry<T> {
+  value: T;                    // The cached result
+  timestamp: number;           // When it was cached (Date.now())
+  generatedKey?: string;       // The readable key for callbacks
+  dependencies?: DependencyArray; // Optional dependency tracking
+}
+```
+
+This metadata enables time-based expiration and tracking of when values were cached.
+
+### Getting or creating a cache
+
+When a memoized method is called, the decorator requests a cache from the service:
+
+```typescript
+// From ngememoize.service.ts:19-25
+getCache<T>(identifier: string): CacheMap<T> {
+  if (!this.caches.has(identifier)) {
+    this.caches.set(identifier, new Map());
+    this.stats.set(identifier, { hits: 0, misses: 0 });
+  }
+  return this.caches.get(identifier) as CacheMap<T>;
+}
+```
+
+Caches are created lazily - they only exist once the memoized method is called for the first time.
+
+## Cache invalidation strategies
+
+Ngememoize provides multiple strategies for invalidating cached data:
+
+### Manual cache clearing
+
+You can clear specific caches or all caches using the `clearCache()` method:
+
+```typescript
+// From ngememoize.service.ts:31-39
+clearCache(identifier?: string): void {
+  if (identifier) {
+    this.caches.delete(identifier);
+    this.stats.delete(identifier);
+  } else {
+    this.caches.clear();
+    this.stats.clear();
+  }
+}
+```
+
+**Example usage:**
+
+```typescript
+export class ProductComponent implements OnDestroy {
+  constructor(private memoizeService: NgememoizeService) {}
+
+  refreshProducts(): void {
+    // Clear only the cache for this specific method
+    this.memoizeService.clearCache('ProductService_getProducts');
+  }
+
+  ngOnDestroy(): void {
+    // Clear all caches when component is destroyed
+    this.memoizeService.clearCache();
+  }
+}
+```
+
+<Note>
+Cache identifiers follow the pattern `ClassName_methodName`. Make sure to use the correct identifier when clearing specific caches.
+</Note>
+
+### Time-based expiration (maxAge)
+
+The `maxAge` option automatically invalidates cache entries after a specified time:
+
+```typescript
+export class WeatherService {
+  @Ngememoize({ maxAge: 300000 }) // 5 minutes in milliseconds
+  getCurrentWeather(city: string): Observable<Weather> {
+    return this.http.get<Weather>(`/api/weather/${city}`);
+  }
+}
+```
+
+Here's how it works internally:
+
+```typescript
+// From ngememoize.decorator.ts:54-76
+if (cached) {
+  if (options.maxAge && now - cached.timestamp > options.maxAge) {
+    // Entry has expired - delete it
+    cache.delete(key);
+    
+    if (options.debugLabel) {
+      console.debug(
+        `[Memoize: ${options.debugLabel}] Delete Cache for key: ${key}`
+      );
+    }
+    
+    memoizeService.recordCacheMiss(cacheIdentifier);
+  } else {
+    // Entry is still valid - return cached value
+    memoizeService.recordCacheHit(cacheIdentifier);
+    return cached.value;
+  }
+}
+```
+
+The expiration check happens on every cache lookup. If the entry is older than `maxAge` milliseconds, it's deleted and the method executes again.
+
+### Size-based eviction (maxSize)
+
+The `maxSize` option limits the number of entries in the cache. When the limit is reached, the oldest entry is evicted:
+
+```typescript
+export class SearchService {
+  @Ngememoize({ maxSize: 100 }) // Keep only the 100 most recent searches
+  search(query: string, filters: SearchFilters): SearchResults[] {
+    return this.performSearch(query, filters);
+  }
+}
+```
+
+The eviction algorithm:
+
+```typescript
+// From ngememoize.decorator.ts:83-88
+if (options.maxSize && cache.size >= options.maxSize) {
+  const oldestKey = Array.from(cache.entries()).sort(
+    ([, a], [, b]) => a.timestamp - b.timestamp
+  )[0][0];
+  cache.delete(oldestKey);
+}
+```
+
+This ensures your cache doesn't grow unbounded, which is especially important for:
+- Methods with high argument variability
+- Long-running applications
+- Memory-constrained environments
+
+<Note>
+The LRU (Least Recently Used) eviction happens before storing a new entry. The cache sorts all entries by timestamp and removes the oldest one.
+</Note>
+
+## Cache statistics and monitoring
+
+### Recording hits and misses
+
+Every cache access is tracked automatically:
+
+```typescript
+// From ngememoize.service.ts:45-61
+recordCacheHit(identifier: string): void {
+  const stats = this.stats.get(identifier);
+  if (stats) {
+    stats.hits++;
+  }
+}
+
+recordCacheMiss(identifier: string): void {
+  const stats = this.stats.get(identifier);
+  if (stats) {
+    stats.misses++;
+  }
+}
+```
+
+### Getting cache statistics
+
+You can retrieve comprehensive statistics for all caches:
+
+```typescript
+// From ngememoize.service.ts:67-84
+getCacheStats(): Record<string, CacheStats> {
+  const stats: Record<string, CacheStats> = {};
+
+  this.caches.forEach((cache, key) => {
+    const entries = Array.from(cache.values());
+    const cacheStats = this.stats.get(key) || { hits: 0, misses: 0 };
+    const total = cacheStats.hits + cacheStats.misses;
+
+    stats[key] = {
+      size: cache.size,
+      lastAccessed: Math.max(...entries.map(e => e.timestamp)),
+      hitRate: total ? cacheStats.hits / total : 0,
+      missRate: total ? cacheStats.misses / total : 0,
+    };
+  });
+
+  return stats;
+}
+```
+
+The `CacheStats` interface provides:
+- **size**: Current number of entries in the cache
+- **lastAccessed**: Timestamp of the most recent cache entry
+- **hitRate**: Percentage of requests served from cache (0-1)
+- **missRate**: Percentage of requests that required computation (0-1)
+
+**Example usage:**
+
+```typescript
+export class CacheMonitorComponent implements OnInit {
+  cacheStats: Record<string, CacheStats> = {};
+
+  constructor(private memoizeService: NgememoizeService) {}
+
+  ngOnInit(): void {
+    this.cacheStats = this.memoizeService.getCacheStats();
+  }
+
+  displayStats(): void {
+    Object.entries(this.cacheStats).forEach(([identifier, stats]) => {
+      console.log(`Cache: ${identifier}`);
+      console.log(`  Size: ${stats.size}`);
+      console.log(`  Hit Rate: ${(stats.hitRate * 100).toFixed(2)}%`);
+      console.log(`  Miss Rate: ${(stats.missRate * 100).toFixed(2)}%`);
+    });
+  }
+}
+```
+
+### Debug logging
+
+Use the `debugLabel` option to log cache activity to the console:
+
+```typescript
+export class UserService {
+  @Ngememoize({ debugLabel: 'getUserById' })
+  getUserById(id: string): User {
+    return this.users.find(u => u.id === id);
+  }
+}
+```
+
+This produces console output:
+
+```typescript
+// From ngememoize.decorator.ts:48-52
+if (options.debugLabel) {
+  console.debug(
+    `[Memoize: ${options.debugLabel}] Cache ${cacheStatus} for key: ${key}`
+  );
+}
+```
+
+Output example:
+```
+[Memoize: getUserById] Cache miss for key: 453829
+[Memoize: getUserById] Cache hit for key: 453829
+[Memoize: getUserById] Delete Cache for key: 453829
+```
+
+## Accessing all caches
+
+For advanced use cases, you can retrieve all cache instances:
+
+```typescript
+// From ngememoize.service.ts:90-96
+getAllCache(): Record<string, CacheMap<any>> {
+  const allCaches: Record<string, CacheMap<any>> = {};
+  this.caches.forEach((cache, key) => {
+    allCaches[key] = cache;
+  });
+  return allCaches;
+}
+```
+
+This allows you to:
+- Inspect cache contents for debugging
+- Implement custom eviction strategies
+- Export cache data for analysis
+- Manually manipulate cache entries
+
+```typescript
+export class CacheDebugService {
+  constructor(private memoizeService: NgememoizeService) {}
+
+  inspectCache(identifier: string): void {
+    const allCaches = this.memoizeService.getAllCache();
+    const cache = allCaches[identifier];
+    
+    if (cache) {
+      console.log(`Cache entries for ${identifier}:`);
+      cache.forEach((entry, key) => {
+        console.log(`  Key: ${key}`);
+        console.log(`  Value:`, entry.value);
+        console.log(`  Cached at:`, new Date(entry.timestamp));
+      });
+    }
+  }
+}
+```
+
+## Best practices
+
+1. **Combine strategies**: Use both `maxAge` and `maxSize` for optimal cache management:
+   ```typescript
+   @Ngememoize({ maxAge: 300000, maxSize: 50 })
+   ```
+
+2. **Monitor in development**: Always use `debugLabel` during development to verify cache behavior:
+   ```typescript
+   @Ngememoize({ debugLabel: 'myMethod', maxAge: 5000 })
+   ```
+
+3. **Clear caches strategically**: Clear caches when underlying data changes:
+   ```typescript
+   saveUser(user: User): void {
+     this.http.post('/api/users', user).subscribe(() => {
+       this.memoizeService.clearCache('UserService_getUsers');
+     });
+   }
+   ```
+
+4. **Track statistics in production**: Use `getCacheStats()` to identify optimization opportunities and verify that memoization is providing value.

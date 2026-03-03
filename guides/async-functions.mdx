@@ -1,0 +1,344 @@
+---
+title: Async functions
+description: Memoize asynchronous functions and Promises with Ngememoize
+---
+
+Ngememoize automatically detects and handles asynchronous functions that return Promises. This guide covers how to memoize async operations effectively.
+
+## How Ngememoize handles Promises
+
+When your memoized function returns a Promise, Ngememoize:
+
+1. Detects the Promise using `isPromise(result)`
+2. Waits for the Promise to resolve
+3. Caches the Promise itself (not just the resolved value)
+4. Returns the cached Promise for subsequent calls with the same arguments
+
+<Note>
+  Ngememoize caches the Promise object, which means all callers share the same Promise instance for identical arguments.
+</Note>
+
+## Basic async memoization
+
+Apply `@Ngememoize` to async methods just like synchronous ones:
+
+```typescript
+import { Component } from '@angular/core';
+import { Ngememoize } from 'ngememoize';
+
+@Component({
+  selector: 'app-data',
+  standalone: true,
+})
+export class DataComponent {
+  @Ngememoize({
+    debugLabel: 'fetchData',
+    maxAge: 5000
+  })
+  async fetchData(id: string): Promise<string> {
+    console.log('Fetching...');
+    return new Promise(resolve =>
+      setTimeout(() => resolve(`Data for ${id}`), 1000)
+    );
+  }
+}
+```
+
+Usage:
+
+```typescript
+// First call - executes the async function
+await this.fetchData('123'); // Logs: "Fetching..."
+// Waits 1 second, returns: "Data for 123"
+
+// Second call with same ID - returns cached Promise
+await this.fetchData('123'); // No log, instant return
+// Returns: "Data for 123" (from cache)
+
+// Different ID - executes again
+await this.fetchData('456'); // Logs: "Fetching..."
+// Waits 1 second, returns: "Data for 456"
+```
+
+## Promise caching behavior
+
+From the Ngememoize source code:
+
+```typescript
+const result = fn.apply(context, args);
+
+if (isPromise(result)) {
+  return result.then(resolvedResult => {
+    if (
+      (Array.isArray(resolvedResult) && resolvedResult.length > 0) ||
+      resolvedResult
+    ) {
+      cache.set(key, { value: result, timestamp: now, generatedKey });
+    }
+    return resolvedResult;
+  }) as TResult;
+}
+```
+
+Key points:
+
+- The cache stores the Promise (`result`), not the resolved value
+- Empty arrays and falsy values are not cached
+- The Promise is cached after it resolves successfully
+- The timestamp is set when the function is first called, not when it resolves
+
+## Async/await patterns
+
+### HTTP requests
+
+Memoize API calls to prevent duplicate requests:
+
+```typescript
+import { Injectable } from '@angular/core';
+import { HttpClient } from '@angular/common/http';
+import { Ngememoize } from 'ngememoize';
+import { firstValueFrom } from 'rxjs';
+
+interface User {
+  id: number;
+  firstName: string;
+  lastName: string;
+}
+
+@Injectable({
+  providedIn: 'root',
+})
+export class UserService {
+  private apiUrl = 'https://api.example.com/users';
+
+  constructor(private http: HttpClient) {}
+
+  @Ngememoize({
+    maxAge: 60000, // Cache for 1 minute
+    debugLabel: 'fetchUser'
+  })
+  async fetchUser(id: number): Promise<User> {
+    const response = await firstValueFrom(
+      this.http.get<User>(`${this.apiUrl}/${id}`)
+    );
+    return response;
+  }
+}
+```
+
+### Multiple parallel calls
+
+When multiple components request the same data simultaneously, they all receive the same cached Promise:
+
+```typescript
+// Component A
+const userA = await this.userService.fetchUser(1); // Makes HTTP request
+
+// Component B (called while Component A's request is pending)
+const userB = await this.userService.fetchUser(1); // Gets same Promise, no new request
+```
+
+Both components share the same Promise and receive the result when it resolves.
+
+## Time-based expiration
+
+Use `maxAge` to refresh cached async results periodically:
+
+```typescript
+@Ngememoize({
+  maxAge: 30000, // Refresh every 30 seconds
+  debugLabel: 'fetchNews'
+})
+async fetchNews(category: string): Promise<Article[]> {
+  const response = await fetch(`/api/news/${category}`);
+  return response.json();
+}
+```
+
+After 30 seconds:
+- The cache entry is deleted
+- The next call triggers a new request
+- The new Promise is cached
+
+## Error handling
+
+Memoized async functions handle errors the same way as unmemoized ones:
+
+```typescript
+@Ngememoize({
+  debugLabel: 'fetchUser'
+})
+async fetchUser(id: number): Promise<User> {
+  try {
+    const response = await fetch(`/api/users/${id}`);
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+    return response.json();
+  } catch (error) {
+    console.error('Failed to fetch user:', error);
+    throw error;
+  }
+}
+```
+
+Calling code:
+
+```typescript
+try {
+  const user = await this.fetchUser(123);
+  console.log(user);
+} catch (error) {
+  // Handle error
+  console.error('Error:', error);
+}
+```
+
+<Warning>
+  If a Promise rejects, it is still cached. Subsequent calls with the same arguments will return the same rejected Promise until the cache expires or is cleared.
+</Warning>
+
+## Observables vs Promises
+
+Ngememoize works with Promises, not RxJS Observables. Convert Observables to Promises:
+
+```typescript
+import { firstValueFrom } from 'rxjs';
+
+@Ngememoize({
+  maxAge: 5000
+})
+async searchUsers(query: string): Promise<User[]> {
+  const response = await firstValueFrom(
+    this.http.get<{ users: User[] }>(`/api/users/search?q=${query}`)
+  );
+  return response.users;
+}
+```
+
+<Note>
+  Use `firstValueFrom` to convert an Observable to a Promise that resolves with the first emitted value.
+</Note>
+
+## Monitoring async cache performance
+
+Combine `debugLabel` and callbacks to track async operations:
+
+```typescript
+@Ngememoize({
+  maxAge: 5000,
+  debugLabel: 'fetchData',
+  onCacheHit: (key) => {
+    console.log(`✓ Returning cached data for ${key}`);
+  },
+  onCacheMiss: (key) => {
+    console.log(`⟳ Fetching fresh data for ${key}`);
+  }
+})
+async fetchData(id: string): Promise<Data> {
+  console.log(`Starting fetch for ID: ${id}`);
+  const response = await fetch(`/api/data/${id}`);
+  return response.json();
+}
+```
+
+Console output for cached call:
+
+```
+[Memoize: fetchData] Cache hit for key: user-123
+✓ Returning cached data for user-123
+```
+
+Console output for cache miss:
+
+```
+[Memoize: fetchData] Cache miss for key: user-456
+⟳ Fetching fresh data for user-456
+Starting fetch for ID: user-456
+```
+
+## Real-world example
+
+Here's a complete example from the Ngememoize README:
+
+```typescript
+import { Component } from '@angular/core';
+import { Ngememoize } from 'ngememoize';
+
+@Component({
+  selector: 'app-data',
+  standalone: true,
+})
+export class DataComponent {
+  @Ngememoize({
+    debugLabel: 'fetchData',
+    maxAge: 5000
+  })
+  async fetchData(id: string): Promise<string> {
+    console.log('Fetching...');
+    return new Promise(resolve =>
+      setTimeout(() => resolve(`Data for ${id}`), 1000)
+    );
+  }
+
+  async loadData() {
+    // First call
+    const data1 = await this.fetchData('user-1'); // Logs: "Fetching..."
+    console.log(data1); // "Data for user-1" after 1 second
+
+    // Second call (cached)
+    const data2 = await this.fetchData('user-1'); // No log, instant
+    console.log(data2); // "Data for user-1" immediately
+
+    // After 5 seconds, cache expires
+    setTimeout(async () => {
+      const data3 = await this.fetchData('user-1'); // Logs: "Fetching..."
+      console.log(data3); // "Data for user-1" after 1 second
+    }, 6000);
+  }
+}
+```
+
+## Best practices
+
+### Cache API responses
+
+Prevents redundant network requests:
+
+```typescript
+@Ngememoize({ maxAge: 60000 })
+async getProducts(): Promise<Product[]> {
+  return firstValueFrom(this.http.get<Product[]>('/api/products'));
+}
+```
+
+### Use appropriate maxAge
+
+Balance freshness with performance:
+
+- Frequently changing data: 10-30 seconds
+- Moderately stable data: 1-5 minutes
+- Rarely changing data: 10-60 minutes
+
+### Don't cache user-specific actions
+
+Avoid memoizing operations with side effects:
+
+```typescript
+// DON'T memoize this
+async submitOrder(order: Order): Promise<void> {
+  await this.http.post('/api/orders', order);
+}
+
+// DO memoize this
+@Ngememoize({ maxAge: 30000 })
+async getOrderHistory(userId: string): Promise<Order[]> {
+  return firstValueFrom(this.http.get<Order[]>(`/api/orders/${userId}`));
+}
+```
+
+## Next steps
+
+- Learn about [debugging techniques](/guides/debugging) to monitor async cache performance
+- Explore [advanced options](/guides/advanced-options) like `onCacheHit` and `onCacheMiss`
+- Return to [basic usage](/guides/basic-usage) for fundamentals

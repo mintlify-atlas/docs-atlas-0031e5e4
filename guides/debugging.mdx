@@ -1,0 +1,473 @@
+---
+title: Debugging
+description: Monitor cache performance, diagnose issues, and optimize your memoization strategy
+---
+
+Ngememoize provides several tools to help you understand cache behavior, track performance, and debug issues.
+
+## Debug labels
+
+The `debugLabel` option enables console logging for cache operations:
+
+```typescript
+import { Ngememoize } from 'ngememoize';
+
+@Ngememoize({
+  debugLabel: 'calculateSubtotal'
+})
+calculateSubtotal(price: number, quantity: number): number {
+  return price * quantity;
+}
+```
+
+### Console output format
+
+When `debugLabel` is set, Ngememoize logs:
+
+```
+[Memoize: calculateSubtotal] Cache miss for key: 10-5
+[Memoize: calculateSubtotal] Cache hit for key: 10-5
+[Memoize: calculateSubtotal] Delete Cache for key: 10-5
+```
+
+From the source code (ngememoize.decorator.ts:48-52):
+
+```typescript
+if (options.debugLabel) {
+  console.debug(
+    `[Memoize: ${options.debugLabel}] Cache ${cacheStatus} for key: ${key}`,
+  );
+}
+```
+
+### When cache entries are deleted
+
+When `maxAge` is set and an entry expires (ngememoize.decorator.ts:55-62):
+
+```typescript
+if (options.maxAge && now - cached.timestamp > options.maxAge) {
+  cache.delete(key);
+
+  if (options.debugLabel) {
+    console.debug(
+      `[Memoize: ${options.debugLabel}] Delete Cache for key: ${key}`,
+    );
+  }
+}
+```
+
+## Cache callbacks
+
+Use `onCacheHit` and `onCacheMiss` callbacks to track cache behavior programmatically.
+
+### onCacheHit callback
+
+Executed when a cached value is returned:
+
+```typescript
+@Ngememoize({
+  onCacheHit: (key) => {
+    console.log(`🎯 Cache HIT: Subtotal calculation for ${key}`);
+  }
+})
+calculateSubtotal(price: number, quantity: number): number {
+  return price * quantity;
+}
+```
+
+### onCacheMiss callback
+
+Executed when the function needs to recompute:
+
+```typescript
+@Ngememoize({
+  onCacheMiss: (key) => {
+    console.log(`📝 Cache MISS: Computing new subtotal for ${key}`);
+  }
+})
+calculateSubtotal(price: number, quantity: number): number {
+  return price * quantity;
+}
+```
+
+### Combining callbacks
+
+Real example from the Ngememoize source (product.component.ts:64-71):
+
+```typescript
+import { Component } from '@angular/core';
+import { Ngememoize } from 'ngememoize';
+
+@Component({
+  selector: 'app-product',
+  standalone: true,
+})
+export class ProductComponent {
+  @Ngememoize({
+    maxAge: 5000,
+    keyGenerator: (price, quantity) => `subtotal-${price}-${quantity}`,
+    onCacheHit: (key) =>
+      console.log(`🎯 Cache HIT: Subtotal calculation for ${key as string}`),
+    onCacheMiss: (key) =>
+      console.log(`📝 Cache MISS: Computing new subtotal for ${key as string}`),
+  })
+  calculateSubtotal(price: number, quantity: number): number {
+    console.log(
+      `💰 Computing subtotal for price: $${price} × ${quantity} items`,
+    );
+    return Number((price * quantity).toFixed(2));
+  }
+}
+```
+
+Console output:
+
+```
+📝 Cache MISS: Computing new subtotal for subtotal-10-5
+💰 Computing subtotal for price: $10 × 5 items
+🎯 Cache HIT: Subtotal calculation for subtotal-10-5
+```
+
+## Using getCacheStats()
+
+The `NgememoizeService` provides the `getCacheStats()` method to retrieve cache statistics.
+
+### Injecting the service
+
+```typescript
+import { Component, inject } from '@angular/core';
+import { NgememoizeService } from 'ngememoize';
+
+@Component({
+  selector: 'app-product',
+  standalone: true,
+})
+export class ProductComponent {
+  memoizeService = inject(NgememoizeService);
+
+  showStats() {
+    const stats = this.memoizeService.getCacheStats();
+    console.log('Cache Statistics:', stats);
+  }
+}
+```
+
+### CacheStats interface
+
+The `getCacheStats()` method returns a record of statistics:
+
+```typescript
+interface CacheStats {
+  size: number;        // Current number of cached entries
+  lastAccessed: number; // Timestamp of most recent access
+  hitRate: number;     // Percentage of cache hits (0-1)
+  missRate: number;    // Percentage of cache misses (0-1)
+}
+```
+
+Example output:
+
+```javascript
+{
+  "ProductComponent_calculateSubtotal": {
+    "size": 3,
+    "lastAccessed": 1709481234567,
+    "hitRate": 0.75,
+    "missRate": 0.25
+  },
+  "ProductComponent_calculateDiscount": {
+    "size": 5,
+    "lastAccessed": 1709481234890,
+    "hitRate": 0.6,
+    "missRate": 0.4
+  }
+}
+```
+
+### Implementation details
+
+From ngememoize.service.ts:67-84:
+
+```typescript
+getCacheStats(): Record<string, CacheStats> {
+  const stats: Record<string, CacheStats> = {};
+
+  this.caches.forEach((cache, key) => {
+    const entries = Array.from(cache.values());
+    const cacheStats = this.stats.get(key) || { hits: 0, misses: 0 };
+    const total = cacheStats.hits + cacheStats.misses;
+
+    stats[key] = {
+      size: cache.size,
+      lastAccessed: Math.max(...entries.map(e => e.timestamp)),
+      hitRate: total ? cacheStats.hits / total : 0,
+      missRate: total ? cacheStats.misses / total : 0,
+    };
+  });
+
+  return stats;
+}
+```
+
+### Viewing all caches
+
+Use `getAllCache()` to inspect cache contents:
+
+```typescript
+const allCaches = this.memoizeService.getAllCache();
+console.log('All Caches:', allCaches);
+```
+
+From product.component.ts:61:
+
+```typescript
+calculateTotal() {
+  const startTime = performance.now();
+
+  // ... perform calculations ...
+
+  const endTime = performance.now();
+  console.log(
+    `⏱️ Total calculation time: ${(endTime - startTime).toFixed(2)}ms`,
+  );
+
+  console.log('Ngememoize Caches:', this.memoizeService.getAllCache());
+}
+```
+
+## Monitoring cache performance
+
+### Measuring execution time
+
+Track performance improvements with `performance.now()`:
+
+```typescript
+calculateTotal() {
+  console.log('\n🧮 Starting price calculation...');
+  const startTime = performance.now();
+
+  this.subtotal = this.calculateSubtotal(
+    this.product.basePrice,
+    this.product.quantity,
+  );
+  this.discount = this.calculateDiscount(
+    this.subtotal,
+    this.product.discountCode ?? '',
+    this.product.quantity,
+  );
+  this.shippingCost = this.calculateShipping(
+    this.product.shipping ?? '',
+    this.subtotal,
+  );
+  this.total = this.subtotal - this.discount + this.shippingCost;
+
+  const endTime = performance.now();
+  console.log(
+    `⏱️ Total calculation time: ${(endTime - startTime).toFixed(2)}ms`,
+  );
+}
+```
+
+### Interpreting hit rates
+
+- **High hit rate (&gt;0.7)**: Memoization is effective, many cache hits
+- **Medium hit rate (0.3-0.7)**: Some benefit from caching
+- **Low hit rate (&lt;0.3)**: Consider adjusting `maxAge`, `maxSize`, or `keyGenerator`
+
+<Note>
+  A low hit rate might indicate that your function is called with unique arguments frequently. This is normal for certain use cases.
+</Note>
+
+## Common issues and solutions
+
+### Issue: Cache never hits
+
+**Symptoms:**
+- Every call shows "Cache miss"
+- Hit rate is 0%
+
+**Possible causes:**
+
+1. Arguments are objects that serialize differently:
+
+```typescript
+// Problem: Objects with same values serialize differently
+this.calculate({ price: 10, qty: 5 }); // miss
+this.calculate({ price: 10, qty: 5 }); // miss (different object reference)
+```
+
+**Solution:** Use a custom `keyGenerator`:
+
+```typescript
+@Ngememoize({
+  keyGenerator: (params) => `${params.price}-${params.qty}`
+})
+calculate(params: { price: number; qty: number }): number {
+  return params.price * params.qty;
+}
+```
+
+2. Function includes timestamp or random values:
+
+```typescript
+// Problem: timestamp changes every call
+this.calculate(10, Date.now()); // Always misses
+```
+
+**Solution:** Exclude volatile parameters from key:
+
+```typescript
+@Ngememoize({
+  keyGenerator: (value, timestamp) => `${value}` // Ignore timestamp
+})
+calculate(value: number, timestamp: number): number {
+  return value * 2;
+}
+```
+
+### Issue: Stale data returned
+
+**Symptoms:**
+- Old values returned when source data changes
+
+**Solution:** Set `maxAge` to expire cache periodically:
+
+```typescript
+@Ngememoize({
+  maxAge: 5000 // Refresh every 5 seconds
+})
+getData(id: string): Data {
+  return this.dataSource.get(id);
+}
+```
+
+### Issue: Memory usage grows over time
+
+**Symptoms:**
+- Application memory increases
+- Many cache entries accumulate
+
+**Solution:** Set `maxSize` to limit cache entries:
+
+```typescript
+@Ngememoize({
+  maxSize: 100 // Keep only 100 most recent
+})
+searchProducts(query: string): Product[] {
+  return this.products.filter(p => p.name.includes(query));
+}
+```
+
+<Warning>
+  Without `maxSize` or `maxAge`, caches grow indefinitely. Always set at least one limit for production code.
+</Warning>
+
+### Issue: Cache identifier conflicts
+
+Ngememoize generates cache identifiers using the pattern:
+
+```typescript
+const cacheIdentifier = `${target.constructor.name}_${propertyKey}`;
+```
+
+From ngememoize.decorator.ts:134.
+
+If you have multiple instances of the same class, they share the same cache. This is usually desired but can cause issues if instances should have separate caches.
+
+**Solution:** Use dependency injection to ensure singleton behavior:
+
+```typescript
+@Injectable({
+  providedIn: 'root', // Singleton
+})
+export class DataService {
+  @Ngememoize()
+  getData(id: string): Data {
+    // ...
+  }
+}
+```
+
+## Debugging workflow
+
+<Steps>
+  <Step title="Enable debug logging">
+    Add `debugLabel` to your memoized methods:
+
+    ```typescript
+    @Ngememoize({
+      debugLabel: 'calculatePrice'
+    })
+    calculatePrice(amount: number): number {
+      return amount * 1.1;
+    }
+    ```
+  </Step>
+
+  <Step title="Check console output">
+    Look for cache hit/miss patterns:
+
+    ```
+    [Memoize: calculatePrice] Cache miss for key: 100
+    [Memoize: calculatePrice] Cache hit for key: 100
+    [Memoize: calculatePrice] Cache hit for key: 100
+    ```
+  </Step>
+
+  <Step title="Review cache statistics">
+    Call `getCacheStats()` to see hit rates:
+
+    ```typescript
+    const stats = this.memoizeService.getCacheStats();
+    console.log(stats);
+    ```
+  </Step>
+
+  <Step title="Optimize configuration">
+    Adjust options based on findings:
+
+    - Low hit rate: Add custom `keyGenerator`
+    - Stale data: Decrease `maxAge`
+    - Memory issues: Add `maxSize` limit
+  </Step>
+</Steps>
+
+## Production debugging
+
+For production environments, replace `console.log` with proper logging:
+
+```typescript
+import { Injectable } from '@angular/core';
+
+@Injectable({
+  providedIn: 'root',
+})
+export class MetricsService {
+  recordCacheHit(key: string) {
+    // Send to analytics service
+  }
+
+  recordCacheMiss(key: string) {
+    // Send to analytics service
+  }
+}
+
+@Component({ /* ... */ })
+export class ProductComponent {
+  metrics = inject(MetricsService);
+
+  @Ngememoize({
+    onCacheHit: (key) => this.metrics.recordCacheHit(key as string),
+    onCacheMiss: (key) => this.metrics.recordCacheMiss(key as string),
+  })
+  calculatePrice(amount: number): number {
+    return amount * 1.1;
+  }
+}
+```
+
+## Next steps
+
+- Review [advanced options](/guides/advanced-options) for fine-tuning cache behavior
+- Learn about [async functions](/guides/async-functions) for memoizing Promises
+- Return to [basic usage](/guides/basic-usage) for fundamentals

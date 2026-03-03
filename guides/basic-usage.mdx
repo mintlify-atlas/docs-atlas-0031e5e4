@@ -1,0 +1,169 @@
+---
+title: Basic usage
+description: Learn how to use Ngememoize to cache method results and getters in your Angular components
+---
+
+Ngememoize helps you improve performance by caching expensive function results. This guide covers the fundamentals of using the `@Ngememoize` decorator.
+
+## Installation
+
+First, install Ngememoize via npm:
+
+```bash
+npm install ngememoize
+```
+
+## Importing the decorator
+
+Import the `Ngememoize` decorator from the package:
+
+```typescript
+import { Ngememoize } from 'ngememoize';
+```
+
+## Memoizing methods
+
+<Steps>
+  <Step title="Add the decorator to your method">
+    Apply `@Ngememoize()` above any method you want to cache:
+
+    ```typescript
+    import { Component } from '@angular/core';
+    import { Ngememoize } from 'ngememoize';
+
+    @Component({
+      selector: 'app-product',
+      standalone: true,
+    })
+    export class ProductComponent {
+      @Ngememoize()
+      calculateSubtotal(price: number, quantity: number): number {
+        console.log('Computing subtotal...');
+        return price * quantity;
+      }
+    }
+    ```
+  </Step>
+
+  <Step title="Call the method multiple times">
+    When you call the method with the same arguments, Ngememoize returns the cached result:
+
+    ```typescript
+    // First call - executes the function
+    this.calculateSubtotal(10, 5); // Logs: "Computing subtotal..."
+    // Returns: 50
+
+    // Second call with same args - returns cached result
+    this.calculateSubtotal(10, 5); // No log
+    // Returns: 50 (from cache)
+
+    // Different args - executes the function again
+    this.calculateSubtotal(20, 3); // Logs: "Computing subtotal..."
+    // Returns: 60
+    ```
+  </Step>
+
+  <Step title="Cache invalidation">
+    The cache automatically invalidates when you pass different arguments. Ngememoize generates cache keys based on your function parameters.
+  </Step>
+</Steps>
+
+## Memoizing getters
+
+You can also memoize getters to cache computed properties:
+
+```typescript
+import { Component } from '@angular/core';
+import { Ngememoize } from 'ngememoize';
+
+@Component({
+  selector: 'app-user',
+  standalone: true,
+})
+export class UserComponent {
+  firstName = 'John';
+  lastName = 'Doe';
+
+  @Ngememoize()
+  get fullName(): string {
+    console.log('Computing full name...');
+    return `${this.firstName} ${this.lastName}`;
+  }
+}
+```
+
+The getter result is cached until the component instance changes. Since getters don't have parameters, the cache persists for the lifetime of the component instance.
+
+## Common patterns
+
+### Price calculations
+
+Memoize expensive calculations that run frequently:
+
+```typescript
+@Ngememoize()
+calculateDiscount(subtotal: number, code: string, quantity: number): number {
+  if (!code) return 0;
+
+  switch (code) {
+    case 'SAVE10':
+      return subtotal * 0.1;
+    case 'SAVE20':
+      return subtotal * 0.2;
+    case 'BULK15':
+      return quantity >= 5 ? subtotal * 0.15 : 0;
+    default:
+      return 0;
+  }
+}
+```
+
+### Shipping calculations
+
+Cache results that depend on multiple conditions:
+
+```typescript
+@Ngememoize()
+calculateShipping(method: string, subtotal: number): number {
+  switch (method) {
+    case 'express':
+      return subtotal > 100 ? 10 : 15;
+    case 'overnight':
+      return subtotal > 150 ? 20 : 25;
+    default:
+      return 0;
+  }
+}
+```
+
+## How caching works
+
+Ngememoize generates cache keys by serializing your function arguments. When you call a memoized function:
+
+1. Ngememoize generates a key from the arguments
+2. If the key exists in the cache, it returns the cached value
+3. If not, it executes the function and stores the result
+4. Future calls with identical arguments return the cached result
+
+<Note>
+  Arguments with `null` or `undefined` values are filtered out before generating the cache key.
+</Note>
+
+## When to use memoization
+
+Memoization works best for:
+
+- Pure functions that always return the same output for the same input
+- Expensive calculations or transformations
+- Frequently called methods with repeated arguments
+- Computed properties that don't change often
+
+<Warning>
+  Don't memoize functions with side effects or methods that should execute every time they're called.
+</Warning>
+
+## Next steps
+
+- Learn about [advanced options](/guides/advanced-options) like `maxAge`, `maxSize`, and custom key generators
+- Discover how to [memoize async functions](/guides/async-functions)
+- Explore [debugging techniques](/guides/debugging) to monitor cache performance

@@ -1,0 +1,307 @@
+---
+title: "NgememoizeService"
+description: "Service for managing memoization caches and statistics"
+---
+
+## Overview
+
+The `NgememoizeService` is an Angular injectable service that manages all memoization caches created by the `@Ngememoize` decorator. It provides methods to access, clear, and monitor cache performance.
+
+## Service Declaration
+
+```typescript
+@Injectable({
+  providedIn: 'root'
+})
+export class NgememoizeService
+```
+
+The service is provided in the root injector and is available application-wide as a singleton.
+
+## Methods
+
+### getCache
+
+Retrieves the cache associated with a specific identifier.
+
+```typescript
+getCache<T>(identifier: string): CacheMap<T>
+```
+
+<ParamField path="identifier" type="string" required>
+  The unique identifier for the cache (typically `ClassName_methodName`).
+</ParamField>
+
+**Returns:** `CacheMap<T>` - A Map containing cached entries.
+
+**Example:**
+
+```typescript
+import { Component, inject } from '@angular/core';
+import { NgememoizeService } from 'ngememoize';
+
+@Component({
+  selector: 'app-cache-viewer',
+  template: '...'
+})
+export class CacheViewerComponent {
+  private memoizeService = inject(NgememoizeService);
+
+  inspectCache() {
+    const cache = this.memoizeService.getCache('MyComponent_myMethod');
+    console.log('Cache size:', cache.size);
+  }
+}
+```
+
+---
+
+### clearCache
+
+Clears the cache for a specific identifier or all caches.
+
+```typescript
+clearCache(identifier?: string): void
+```
+
+<ParamField path="identifier" type="string" optional>
+  The unique identifier for the cache to clear. If omitted, all caches are cleared.
+</ParamField>
+
+**Returns:** `void`
+
+**Example:**
+
+```typescript
+import { Component, inject } from '@angular/core';
+import { NgememoizeService } from 'ngememoize';
+
+@Component({
+  selector: 'app-cache-manager',
+  template: '...'
+})
+export class CacheManagerComponent {
+  private memoizeService = inject(NgememoizeService);
+
+  // Clear specific cache
+  clearSpecificCache() {
+    this.memoizeService.clearCache('UserComponent_getUser');
+  }
+
+  // Clear all caches
+  clearAllCaches() {
+    this.memoizeService.clearCache();
+  }
+}
+```
+
+---
+
+### recordCacheHit
+
+Records a cache hit for the given identifier. This method is primarily used internally by the decorator.
+
+```typescript
+recordCacheHit(identifier: string): void
+```
+
+<ParamField path="identifier" type="string" required>
+  The unique identifier for the cache.
+</ParamField>
+
+**Returns:** `void`
+
+**Example:**
+
+```typescript
+// Typically called internally, but can be used for custom tracking
+this.memoizeService.recordCacheHit('MyComponent_myMethod');
+```
+
+---
+
+### recordCacheMiss
+
+Records a cache miss for the given identifier. This method is primarily used internally by the decorator.
+
+```typescript
+recordCacheMiss(identifier: string): void
+```
+
+<ParamField path="identifier" type="string" required>
+  The unique identifier for the cache.
+</ParamField>
+
+**Returns:** `void`
+
+**Example:**
+
+```typescript
+// Typically called internally, but can be used for custom tracking
+this.memoizeService.recordCacheMiss('MyComponent_myMethod');
+```
+
+---
+
+### getCacheStats
+
+Retrieves statistics about all caches, including size, hit rate, and last access time.
+
+```typescript
+getCacheStats(): Record<string, CacheStats>
+```
+
+**Returns:** `Record<string, CacheStats>` - An object mapping cache identifiers to their statistics.
+
+**Example:**
+
+```typescript
+import { Component, inject } from '@angular/core';
+import { NgememoizeService } from 'ngememoize';
+
+@Component({
+  selector: 'app-performance-monitor',
+  template: `
+    <div *ngFor="let stat of stats | keyvalue">
+      <h3>{{ stat.key }}</h3>
+      <p>Size: {{ stat.value.size }}</p>
+      <p>Hit Rate: {{ stat.value.hitRate | percent }}</p>
+      <p>Miss Rate: {{ stat.value.missRate | percent }}</p>
+      <p>Last Accessed: {{ stat.value.lastAccessed | date:'short' }}</p>
+    </div>
+  `
+})
+export class PerformanceMonitorComponent {
+  private memoizeService = inject(NgememoizeService);
+  stats = this.memoizeService.getCacheStats();
+
+  refreshStats() {
+    this.stats = this.memoizeService.getCacheStats();
+  }
+}
+```
+
+---
+
+### getAllCache
+
+Retrieves all cache maps.
+
+```typescript
+getAllCache(): Record<string, CacheMap<any>>
+```
+
+**Returns:** `Record<string, CacheMap<any>>` - An object mapping cache identifiers to their cache maps.
+
+**Example:**
+
+```typescript
+import { Component, inject } from '@angular/core';
+import { NgememoizeService } from 'ngememoize';
+
+@Component({
+  selector: 'app-debug',
+  template: '...'
+})
+export class DebugComponent {
+  private memoizeService = inject(NgememoizeService);
+
+  dumpAllCaches() {
+    const allCaches = this.memoizeService.getAllCache();
+    console.log('All caches:', allCaches);
+    
+    Object.entries(allCaches).forEach(([identifier, cache]) => {
+      console.log(`Cache ${identifier}:`, Array.from(cache.entries()));
+    });
+  }
+}
+```
+
+## Usage Patterns
+
+### Monitoring Cache Performance
+
+```typescript
+import { Component, inject, OnInit } from '@angular/core';
+import { NgememoizeService } from 'ngememoize';
+import { interval } from 'rxjs';
+
+@Component({
+  selector: 'app-cache-dashboard',
+  template: '...'
+})
+export class CacheDashboardComponent implements OnInit {
+  private memoizeService = inject(NgememoizeService);
+  cacheStats: Record<string, CacheStats> = {};
+
+  ngOnInit() {
+    // Update stats every 5 seconds
+    interval(5000).subscribe(() => {
+      this.cacheStats = this.memoizeService.getCacheStats();
+    });
+  }
+
+  getCacheEfficiency(identifier: string): number {
+    const stats = this.cacheStats[identifier];
+    return stats ? stats.hitRate * 100 : 0;
+  }
+}
+```
+
+### Programmatic Cache Management
+
+```typescript
+import { Component, inject } from '@angular/core';
+import { NgememoizeService } from 'ngememoize';
+
+@Component({
+  selector: 'app-data-manager',
+  template: '...'
+})
+export class DataManagerComponent {
+  private memoizeService = inject(NgememoizeService);
+
+  // Clear cache when data is updated
+  onDataUpdate() {
+    this.memoizeService.clearCache('DataService_fetchData');
+  }
+
+  // Clear all caches on logout
+  onLogout() {
+    this.memoizeService.clearCache();
+  }
+}
+```
+
+### Custom Cache Inspection
+
+```typescript
+import { Component, inject } from '@angular/core';
+import { NgememoizeService } from 'ngememoize';
+
+@Component({
+  selector: 'app-inspector',
+  template: '...'
+})
+export class InspectorComponent {
+  private memoizeService = inject(NgememoizeService);
+
+  inspectCacheEntries(identifier: string) {
+    const cache = this.memoizeService.getCache(identifier);
+    
+    cache.forEach((entry, key) => {
+      console.log('Key:', key);
+      console.log('Value:', entry.value);
+      console.log('Timestamp:', new Date(entry.timestamp));
+      console.log('Age (ms):', Date.now() - entry.timestamp);
+    });
+  }
+}
+```
+
+## Notes
+
+- The service is automatically used by the `@Ngememoize` decorator
+- Cache identifiers follow the pattern `ClassName_methodName`
+- All caches are stored in memory and will be cleared when the application reloads
+- Statistics are tracked per cache identifier and include hits, misses, and computed rates

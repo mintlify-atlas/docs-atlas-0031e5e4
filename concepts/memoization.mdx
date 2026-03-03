@@ -1,0 +1,232 @@
+---
+title: Memoization
+description: Learn how memoization works in Ngememoize and when to use it for optimal Angular performance
+---
+
+## What is memoization?
+
+Memoization is an optimization technique that stores the results of expensive function calls and returns the cached result when the same inputs occur again. Instead of recalculating the result every time, the function checks if it has already computed the result for the given arguments and returns it immediately.
+
+Think of it like a smart lookup table: the first time you call a function with specific arguments, it calculates and stores the result. Every subsequent call with the same arguments simply retrieves the stored result.
+
+## How Ngememoize implements memoization
+
+Ngememoize provides a decorator-based approach to memoization specifically designed for Angular applications. When you apply the `@Ngememoize()` decorator to a method, the library automatically:
+
+1. **Generates a unique cache identifier** based on the class name and method name
+2. **Creates or retrieves a cache** from the `NgememoizeService`
+3. **Generates a cache key** from the method arguments
+4. **Checks if a cached result exists** for that key
+5. **Returns the cached result** or executes the method and stores the result
+
+Here's what happens internally when you call a memoized method:
+
+```typescript
+// From ngememoize.decorator.ts:42-46
+const cache = memoizeService.getCache<TResult>(cacheIdentifier);
+const key = createOptimizedKeyGenerator<TArgs>(...args);
+const now = Date.now();
+const cached = cache.get(key);
+const cacheStatus = cached ? 'hit' : 'miss';
+```
+
+The cache identifier follows the pattern `ClassName_methodName`, ensuring that each method has its own isolated cache space.
+
+## Cache hits vs cache misses
+
+Understanding cache behavior is crucial for optimizing performance:
+
+### Cache hit
+
+A **cache hit** occurs when the requested data is found in the cache. This is the ideal scenario:
+
+```typescript
+// From ngememoize.decorator.ts:54-75
+if (cached) {
+  if (options.maxAge && now - cached.timestamp > options.maxAge) {
+    // Entry expired, will be treated as a miss
+    cache.delete(key);
+  } else {
+    // Cache hit - return stored value
+    memoizeService.recordCacheHit(cacheIdentifier);
+    return cached.value;
+  }
+}
+```
+
+On a cache hit:
+- The cached value is returned immediately
+- No computation is performed
+- A hit is recorded in the statistics (see `ngememoize.service.ts:45-50`)
+
+### Cache miss
+
+A **cache miss** occurs when the requested data is not in the cache or has expired:
+
+```typescript
+// From ngememoize.decorator.ts:78-106
+memoizeService.recordCacheMiss(cacheIdentifier);
+
+// Execute the original function
+const result = fn.apply(context, args);
+
+// Store the result for future calls
+if ((Array.isArray(result) && result.length > 0) || result) {
+  cache.set(key, { value: result, timestamp: now, generatedKey });
+}
+```
+
+On a cache miss:
+- The original method executes
+- The result is stored in the cache with a timestamp
+- A miss is recorded in the statistics (see `ngememoize.service.ts:56-61`)
+
+<Note>
+Ngememoize only caches truthy values and non-empty arrays. If your method returns `null`, `undefined`, `false`, or an empty array, the result won't be cached.
+</Note>
+
+## When to use memoization
+
+Memoization is beneficial when:
+
+### Computationally expensive operations
+
+```typescript
+export class DataProcessorService {
+  @Ngememoize()
+  calculateComplexMetrics(dataset: number[]): MetricsResult {
+    // Heavy calculations, statistical analysis, etc.
+    return this.performExpensiveCalculation(dataset);
+  }
+}
+```
+
+### Pure functions with repeated calls
+
+Functions that always return the same output for the same input:
+
+```typescript
+export class FormatterService {
+  @Ngememoize()
+  formatCurrency(amount: number, locale: string): string {
+    return new Intl.NumberFormat(locale, {
+      style: 'currency',
+      currency: 'USD'
+    }).format(amount);
+  }
+}
+```
+
+### Data transformations in templates
+
+When the same transformation is called multiple times during change detection:
+
+```typescript
+export class UserComponent {
+  @Ngememoize()
+  getFullName(firstName: string, lastName: string): string {
+    return `${firstName} ${lastName}`;
+  }
+}
+```
+
+## When NOT to use memoization
+
+Avoid memoization in these scenarios:
+
+### Functions with side effects
+
+```typescript
+// DON'T memoize this
+export class ApiService {
+  @Ngememoize() // ❌ Bad: Side effects won't execute on cache hits
+  saveUser(user: User): Observable<User> {
+    this.analytics.track('user_saved'); // This won't run on cache hits!
+    return this.http.post<User>('/api/users', user);
+  }
+}
+```
+
+### Frequently changing inputs
+
+If your function is rarely called with the same arguments, memoization adds overhead without benefits:
+
+```typescript
+// Don't memoize this
+export class TimestampService {
+  @Ngememoize() // ❌ Bad: timestamp is always different
+  formatTimestamp(timestamp: number): string {
+    return new Date(timestamp).toISOString();
+  }
+}
+```
+
+### Simple, fast operations
+
+The overhead of caching may exceed the cost of the operation:
+
+```typescript
+// Don't memoize this
+export class MathService {
+  @Ngememoize() // ❌ Bad: addition is faster than cache lookup
+  add(a: number, b: number): number {
+    return a + b;
+  }
+}
+```
+
+<Note>
+Use the `debugLabel` option during development to monitor cache hits and misses, helping you determine if memoization is beneficial for your use case.
+</Note>
+
+## Performance benefits
+
+Memoization can dramatically improve performance when used correctly. Consider this real-world example:
+
+```typescript
+export class ProductService {
+  @Ngememoize({ maxAge: 5000, debugLabel: 'filterProducts' })
+  filterProducts(products: Product[], category: string): Product[] {
+    return products.filter(p => p.category === category)
+                   .sort((a, b) => b.rating - a.rating);
+  }
+}
+```
+
+With memoization:
+- **First call**: Filters and sorts 1,000 products (~15ms)
+- **Subsequent calls** (same arguments): Returns cached result (~0.1ms)
+- **Performance gain**: 150x faster for cache hits
+
+The benefits multiply when:
+- The same computation is triggered multiple times during a single change detection cycle
+- The method is called from templates that re-render frequently
+- The operation involves complex data transformations or calculations
+
+## Promise support
+
+Ngememoize automatically handles asynchronous operations:
+
+```typescript
+// From ngememoize.decorator.ts:92-102
+if (isPromise(result)) {
+  return result.then(resolvedResult => {
+    if ((Array.isArray(resolvedResult) && resolvedResult.length > 0) || resolvedResult) {
+      cache.set(key, { value: result, timestamp: now, generatedKey });
+    }
+    return resolvedResult;
+  }) as TResult;
+}
+```
+
+This means you can memoize async methods without any special configuration:
+
+```typescript
+export class ApiService {
+  @Ngememoize({ maxAge: 60000 })
+  async getUserProfile(userId: string): Promise<UserProfile> {
+    const response = await this.http.get<UserProfile>(`/api/users/${userId}`);
+    return response;
+  }
+}
+```

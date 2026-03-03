@@ -1,0 +1,391 @@
+---
+title: Key generation
+description: Learn how Ngememoize generates cache keys and how to customize key generation for your specific needs
+---
+
+## How cache keys are generated
+
+Cache keys are the foundation of memoization. They uniquely identify a set of function arguments so that the cache can determine whether it has seen those exact inputs before.
+
+Ngememoize uses a two-tier key generation system:
+
+1. **Optimized key** (for Map lookup): A fast hash-based key for internal cache storage
+2. **Generated key** (for callbacks): A human-readable key for debugging and callbacks
+
+```typescript
+// From ngememoize.decorator.ts:42-43
+const key = createOptimizedKeyGenerator<TArgs>(...args);
+const generatedKey = keyGenerator(...args);
+```
+
+The optimized key is used for actual cache lookups, while the generated key is passed to `onCacheHit` and `onCacheMiss` callbacks for debugging purposes.
+
+## Default key generation algorithm
+
+Ngememoize provides two built-in key generators:
+
+### Optimized key generator (internal use)
+
+Used for fast Map lookups:
+
+```typescript
+// From key-generator.ts:8-12
+export const createOptimizedKeyGenerator = <TArgs extends any[]>(
+  ...args: TArgs
+): string => {
+  return hash(args).toString();
+};
+```
+
+This uses the `hash-it` library to create a numeric hash of the arguments, then converts it to a string. The hash function:
+- Handles complex nested objects
+- Produces consistent hashes for the same inputs
+- Is extremely fast (microsecond-level performance)
+
+### Default key generator (for callbacks and custom use)
+
+```typescript
+// From key-generator.ts:19-23
+export function defaultKeyGenerator<TArgs extends any[]>(
+  ...args: TArgs
+): string {
+  return JSON.stringify(args).trim().replace(/ /g, '');
+}
+```
+
+This creates a JSON string representation of the arguments with:
+- Whitespace removed for consistency
+- Deterministic ordering (for objects, this depends on property insertion order)
+- Human-readable output for debugging
+
+### How arguments are processed
+
+Before key generation, arguments are filtered to remove null and undefined values:
+
+```typescript
+// From ngememoize.decorator.ts:141-143
+const filteredArgs = args.filter(
+  arg => arg !== null && arg !== undefined
+) as TArgs;
+```
+
+This means these calls produce the same cache key:
+```typescript
+getUser('123', null)      // Key: ["123"]
+getUser('123', undefined) // Key: ["123"]
+getUser('123')            // Key: ["123"]
+```
+
+<Note>
+Null and undefined arguments are always filtered out before key generation. If you need to distinguish between `undefined` and absence of an argument, consider using a different sentinel value.
+</Note>
+
+## Custom key generators
+
+You can provide a custom key generator to handle specific argument types or business logic:
+
+```typescript
+export class ProductService {
+  @Ngememoize({
+    keyGenerator: (product: Product) => product.id
+  })
+  processProduct(product: Product): ProcessedProduct {
+    return this.transform(product);
+  }
+}
+```
+
+### Custom key generator signature
+
+Key generators must match this type:
+
+```typescript
+// From types.ts:18-21
+export type KeyGeneratorFunction<
+  TArgs extends any[],
+  TKey extends MemoizeKey = string
+> = (...args: TArgs) => TKey;
+```
+
+Where `MemoizeKey` is:
+
+```typescript
+// From types.ts:5
+export type MemoizeKey = string | number | symbol;
+```
+
+Your custom key generator receives all arguments and must return a string, number, or symbol.
+
+### Example: Object-based keys
+
+For methods that accept complex objects, extract only the relevant properties:
+
+```typescript
+interface SearchParams {
+  query: string;
+  page: number;
+  filters: Filter[];
+  sortOrder?: string; // Not relevant for caching
+}
+
+export class SearchService {
+  @Ngememoize({
+    keyGenerator: (params: SearchParams) => 
+      `${params.query}_${params.page}_${JSON.stringify(params.filters)}`
+  })
+  search(params: SearchParams): SearchResult[] {
+    return this.performSearch(params);
+  }
+}
+```
+
+This ensures that changes to `sortOrder` don't invalidate the cache, since sorting can be done on the cached results.
+
+### Example: Multiple argument keys
+
+For methods with multiple arguments:
+
+```typescript
+export class ReportService {
+  @Ngememoize({
+    keyGenerator: (startDate: Date, endDate: Date, userId: string) => 
+      `${startDate.getTime()}_${endDate.getTime()}_${userId}`
+  })
+  generateReport(startDate: Date, endDate: Date, userId: string): Report {
+    return this.buildReport(startDate, endDate, userId);
+  }
+}
+```
+
+### Example: Normalized keys
+
+Normalize inputs to ensure equivalent inputs produce the same key:
+
+```typescript
+export class TagService {
+  @Ngememoize({
+    keyGenerator: (tags: string[]) => 
+      tags.map(t => t.toLowerCase().trim())
+          .sort()
+          .join(',')
+  })
+  findPostsByTags(tags: string[]): Post[] {
+    return this.posts.filter(p => 
+      tags.some(tag => p.tags.includes(tag))
+    );
+  }
+}
+```
+
+This ensures that `['Angular', 'RxJS']` and `['rxjs', 'angular']` produce the same cache key.
+
+## Handling different argument types
+
+### Primitives
+
+Strings, numbers, and booleans work perfectly with the default key generator:
+
+```typescript
+@Ngememoize()
+getUserById(id: number): User {
+  return this.users.find(u => u.id === id);
+}
+```
+
+### Objects
+
+Objects are serialized to JSON. **Important**: Objects with different property orders are considered different:
+
+```typescript
+// These produce DIFFERENT keys with default generator:
+getUser({ id: 1, name: 'John' })
+getUser({ name: 'John', id: 1 })
+```
+
+For consistent object keys, use a custom key generator that sorts properties:
+
+```typescript
+@Ngememoize({
+  keyGenerator: (user: User) => {
+    const sorted = Object.keys(user).sort().reduce((acc, key) => {
+      acc[key] = user[key];
+      return acc;
+    }, {} as any);
+    return JSON.stringify(sorted);
+  }
+})
+```
+
+### Arrays
+
+Arrays are handled well by the default generator, but order matters:
+
+```typescript
+// These produce DIFFERENT keys:
+getProducts([1, 2, 3])
+getProducts([3, 2, 1])
+```
+
+If order doesn't matter, sort in your key generator:
+
+```typescript
+@Ngememoize({
+  keyGenerator: (ids: number[]) => [...ids].sort().join(',')
+})
+```
+
+### Dates
+
+Dates are objects and serialize to ISO strings. Use timestamps for more predictable keys:
+
+```typescript
+@Ngememoize({
+  keyGenerator: (date: Date) => date.getTime().toString()
+})
+getDataForDate(date: Date): Data[] {
+  return this.filterByDate(date);
+}
+```
+
+### Complex nested structures
+
+For deeply nested objects, the default hash-based key generator (`createOptimizedKeyGenerator`) handles them efficiently:
+
+```typescript
+interface ComplexQuery {
+  filters: {
+    category: string[];
+    priceRange: { min: number; max: number };
+    tags: { include: string[]; exclude: string[] };
+  };
+  sorting: { field: string; order: 'asc' | 'desc' }[];
+}
+
+@Ngememoize() // Default key generator handles this well
+query(params: ComplexQuery): Result[] {
+  return this.executeQuery(params);
+}
+```
+
+## Best practices for key generation
+
+### 1. Include only cache-relevant arguments
+
+Don't include arguments that don't affect the result:
+
+```typescript
+// Bad: callback doesn't affect the result
+@Ngememoize()
+fetchData(id: string, onComplete: () => void): Data {
+  const result = this.getData(id);
+  onComplete();
+  return result;
+}
+
+// Good: exclude callback from key
+@Ngememoize({
+  keyGenerator: (id: string) => id
+})
+fetchData(id: string, onComplete: () => void): Data {
+  const result = this.getData(id);
+  onComplete();
+  return result;
+}
+```
+
+### 2. Keep keys deterministic
+
+Ensure the same inputs always produce the same key:
+
+```typescript
+// Bad: uses random or time-based data
+@Ngememoize({
+  keyGenerator: (id: string) => `${id}_${Math.random()}`
+})
+
+// Good: purely based on inputs
+@Ngememoize({
+  keyGenerator: (id: string) => id
+})
+```
+
+### 3. Consider key collision probability
+
+Make keys specific enough to avoid collisions:
+
+```typescript
+// Bad: high collision risk
+@Ngememoize({
+  keyGenerator: (user: User) => user.firstName
+})
+
+// Good: use unique identifier
+@Ngememoize({
+  keyGenerator: (user: User) => user.id
+})
+```
+
+### 4. Optimize for performance
+
+Key generation happens on every method call. Keep it fast:
+
+```typescript
+// Bad: expensive serialization
+@Ngememoize({
+  keyGenerator: (data: LargeObject) => JSON.stringify(data)
+})
+
+// Good: use identifier or hash
+@Ngememoize({
+  keyGenerator: (data: LargeObject) => data.id
+})
+```
+
+### 5. Use callbacks to verify keys
+
+During development, verify your key generator works as expected:
+
+```typescript
+@Ngememoize({
+  keyGenerator: (user: User) => user.id,
+  debugLabel: 'processUser',
+  onCacheHit: (key) => console.log('Hit:', key),
+  onCacheMiss: (key) => console.log('Miss:', key)
+})
+processUser(user: User): ProcessedUser {
+  return this.transform(user);
+}
+```
+
+## Dependency-based keys
+
+For advanced scenarios, you can create keys based on external dependencies:
+
+```typescript
+// From general.ts:18-29
+export function createDependencyKey(dependencies: DependencyArray): string {
+  return JSON.stringify(
+    dependencies.map(dep => {
+      if (dep && typeof dep === 'object') {
+        return Object.entries(dep)
+          .sort(([a], [b]) => a.localeCompare(b))
+          .map(([k, v]) => `${k}:${JSON.stringify(v)}`);
+      }
+      return dep;
+    })
+  );
+}
+```
+
+This utility sorts object properties alphabetically before creating the key, ensuring consistent keys regardless of property order.
+
+While this is used internally, you can leverage it in custom key generators:
+
+```typescript
+import { createDependencyKey } from 'ngememoize';
+
+@Ngememoize({
+  keyGenerator: (config: Config, options: Options) => 
+    createDependencyKey([config, options])
+})
+```

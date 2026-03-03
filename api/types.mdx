@@ -1,0 +1,268 @@
+---
+title: "Types"
+description: "Type definitions for Ngememoize"
+---
+
+## Overview
+
+This page documents all exported types used in the Ngememoize library.
+
+## MemoizeKey
+
+Represents a key that can be used for memoization.
+
+```typescript
+type MemoizeKey = string | number | symbol
+```
+
+Cache keys can be strings, numbers, or symbols, providing flexibility in how cached entries are indexed.
+
+**Example:**
+
+```typescript
+import { MemoizeKey } from 'ngememoize';
+
+const stringKey: MemoizeKey = 'user_123';
+const numberKey: MemoizeKey = 42;
+const symbolKey: MemoizeKey = Symbol('cache-key');
+```
+
+---
+
+## KeyGeneratorFunction
+
+A function type that generates a cache key based on the provided arguments.
+
+```typescript
+type KeyGeneratorFunction<
+  TArgs extends any[],
+  TKey extends MemoizeKey = string
+> = (...args: TArgs) => TKey
+```
+
+### Type Parameters
+
+<ParamField path="TArgs" type="any[]">
+  The type of arguments array passed to the function.
+</ParamField>
+
+<ParamField path="TKey" type="MemoizeKey" default="string">
+  The type of key to generate (string, number, or symbol).
+</ParamField>
+
+**Example:**
+
+```typescript
+import { KeyGeneratorFunction, Ngememoize } from 'ngememoize';
+
+// Custom key generator for user objects
+const userKeyGenerator: KeyGeneratorFunction<[User]> = (user) => {
+  return `${user.id}_${user.version}`;
+};
+
+@Component({
+  selector: 'app-user',
+  template: '...'
+})
+export class UserComponent {
+  @Ngememoize({ keyGenerator: userKeyGenerator })
+  processUser(user: User): ProcessedUser {
+    return this.transform(user);
+  }
+}
+```
+
+```typescript
+// Numeric key generator
+const numericKeyGenerator: KeyGeneratorFunction<[number, number], number> = (a, b) => {
+  return a * 1000 + b;
+};
+```
+
+---
+
+## EqualityComparator
+
+A comparator function to compare two values for equality.
+
+```typescript
+type EqualityComparator<T> = (prev: T, next: T) => boolean
+```
+
+### Type Parameters
+
+<ParamField path="T" type="any">
+  The type of values being compared.
+</ParamField>
+
+**Example:**
+
+```typescript
+import { EqualityComparator, Ngememoize } from 'ngememoize';
+
+// Deep equality comparator for arrays
+const arrayEquals: EqualityComparator<number[]> = (prev, next) => {
+  if (prev.length !== next.length) return false;
+  return prev.every((val, idx) => val === next[idx]);
+};
+
+@Component({
+  selector: 'app-calculator',
+  template: '...'
+})
+export class CalculatorComponent {
+  @Ngememoize({ equals: arrayEquals })
+  calculateSum(numbers: number[]): number {
+    return numbers.reduce((sum, n) => sum + n, 0);
+  }
+}
+```
+
+```typescript
+// Object equality comparator
+const objectEquals: EqualityComparator<User> = (prev, next) => {
+  return prev.id === next.id && prev.version === next.version;
+};
+```
+
+---
+
+## CacheMap
+
+A map structure for storing cached entries.
+
+```typescript
+type CacheMap<T> = Map<MemoizeKey, CacheEntry<T>>
+```
+
+### Type Parameters
+
+<ParamField path="T" type="any">
+  The type of values stored in the cache.
+</ParamField>
+
+This is a standard JavaScript Map with `MemoizeKey` keys and `CacheEntry<T>` values.
+
+**Example:**
+
+```typescript
+import { CacheMap, NgememoizeService } from 'ngememoize';
+import { inject } from '@angular/core';
+
+@Component({
+  selector: 'app-cache-viewer',
+  template: '...'
+})
+export class CacheViewerComponent {
+  private memoizeService = inject(NgememoizeService);
+
+  inspectCache() {
+    const cache: CacheMap<User> = this.memoizeService.getCache('UserService_getUser');
+    
+    console.log('Cache size:', cache.size);
+    
+    cache.forEach((entry, key) => {
+      console.log(`Key: ${String(key)}, Value:`, entry.value);
+    });
+  }
+}
+```
+
+---
+
+## DependencyArray
+
+Represents an array of dependencies for memoization.
+
+```typescript
+interface DependencyArray extends Array<any> {}
+```
+
+This type is used internally for tracking dependencies associated with cache entries.
+
+**Example:**
+
+```typescript
+import { DependencyArray } from 'ngememoize';
+
+const dependencies: DependencyArray = ['user-id', 123, { role: 'admin' }];
+```
+
+---
+
+## NgememoizeProps
+
+Properties required for the Ngememoize internal memoization function. This type is primarily used internally by the decorator.
+
+```typescript
+type NgememoizeProps<TArgs extends any[], TResult> = {
+  /** The context in which the memoized function is executed. */
+  context: any;
+  /** The original function to be memoized. */
+  fn: (...args: TArgs) => TResult;
+  /** A unique identifier for the cache. */
+  cacheIdentifier: string;
+  /** The arguments passed to the memoized function. */
+  args: TArgs;
+  /** Options for the memoization behavior. */
+  options: MemoizeOptions<TArgs, TResult>;
+  /** A function to generate keys for caching. */
+  keyGenerator?: KeyGeneratorFunction<TArgs>;
+  /** A function to compare results for equality. */
+  equals?: EqualityComparator<TResult>;
+  /** Callback function when a cache miss occurs. */
+  onCacheMiss?: (key: MemoizeKey) => void;
+  /** Callback function when a cache hit occurs. */
+  onCacheHit?: (key: MemoizeKey) => void;
+}
+```
+
+### Type Parameters
+
+<ParamField path="TArgs" type="any[]">
+  The type of arguments array for the memoized function.
+</ParamField>
+
+<ParamField path="TResult" type="any">
+  The return type of the memoized function.
+</ParamField>
+
+### Properties
+
+<ResponseField name="context" type="any" required>
+  The execution context (typically the class instance).
+</ResponseField>
+
+<ResponseField name="fn" type="(...args: TArgs) => TResult" required>
+  The original function to be memoized.
+</ResponseField>
+
+<ResponseField name="cacheIdentifier" type="string" required>
+  Unique identifier for the cache (e.g., `ClassName_methodName`).
+</ResponseField>
+
+<ResponseField name="args" type="TArgs" required>
+  Arguments passed to the memoized function.
+</ResponseField>
+
+<ResponseField name="options" type="MemoizeOptions<TArgs, TResult>" required>
+  Memoization configuration options.
+</ResponseField>
+
+<ResponseField name="keyGenerator" type="KeyGeneratorFunction<TArgs>">
+  Optional custom key generator function.
+</ResponseField>
+
+<ResponseField name="equals" type="EqualityComparator<TResult>">
+  Optional custom equality comparator.
+</ResponseField>
+
+<ResponseField name="onCacheMiss" type="(key: MemoizeKey) => void">
+  Optional callback for cache misses.
+</ResponseField>
+
+<ResponseField name="onCacheHit" type="(key: MemoizeKey) => void">
+  Optional callback for cache hits.
+</ResponseField>
+
+**Note:** This type is primarily for internal use by the `@Ngememoize` decorator and is not typically used directly in application code.

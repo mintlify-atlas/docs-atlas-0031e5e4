@@ -1,0 +1,118 @@
+---
+title: Introduction
+description: Boost Angular application performance with simple decorator-based memoization
+---
+
+Ngememoize is a lightweight Angular library that makes it easy to cache expensive function calls and computed properties. By adding a simple decorator to your methods and getters, you can eliminate redundant calculations and dramatically improve your application's performance.
+
+## Why memoization matters
+
+In modern Angular applications, you often encounter scenarios where:
+
+- Complex calculations run repeatedly with the same inputs
+- API calls are made multiple times for identical data
+- Computed properties recalculate unnecessarily during change detection
+- Expensive transformations slow down your UI
+
+Memoization solves these problems by caching function results. When a memoized function is called with arguments it has seen before, it returns the cached result instantly instead of recalculating.
+
+## Key features
+
+<CardGroup cols={2}>
+  <Card title="Decorator-based API" icon="at">
+    Add `@Ngememoize()` to any method or getter for instant memoization
+  </Card>
+  <Card title="Configurable caching" icon="sliders">
+    Control cache lifetime with `maxAge` and size limits with `maxSize`
+  </Card>
+  <Card title="Custom key generation" icon="key">
+    Define your own cache key strategies for complex scenarios
+  </Card>
+  <Card title="Debug-friendly" icon="bug">
+    Built-in logging with `debugLabel` to track cache hits and misses
+  </Card>
+  <Card title="Async support" icon="clock">
+    Works seamlessly with Promises and async/await
+  </Card>
+  <Card title="Tree-shakable" icon="tree">
+    Lightweight design with zero unnecessary overhead
+  </Card>
+</CardGroup>
+
+## Real-world use cases
+
+### E-commerce calculations
+
+Cache price calculations that depend on discounts, shipping, and taxes:
+
+```typescript
+@Ngememoize({
+  maxAge: 5000,
+  keyGenerator: (price, quantity) => `subtotal-${price}-${quantity}`
+})
+calculateSubtotal(price: number, quantity: number): number {
+  return price * quantity;
+}
+```
+
+### Data transformations
+
+Avoid re-filtering or re-sorting large datasets:
+
+```typescript
+@Ngememoize()
+get filteredUsers(): User[] {
+  return this.users.filter(user => user.role === 'admin');
+}
+```
+
+### API response processing
+
+Cache expensive transformations of API data:
+
+```typescript
+@Ngememoize({ maxAge: 10000 })
+async fetchData(id: string): Promise<string> {
+  const response = await this.http.get(`/api/data/${id}`);
+  return this.transformResponse(response);
+}
+```
+
+<Note>
+  Memoization is most effective when functions are pure (same inputs always produce the same outputs) and computationally expensive.
+</Note>
+
+## Performance benefits
+
+By eliminating redundant calculations, Ngememoize can:
+
+- **Reduce CPU usage** - Skip expensive computations when results are cached
+- **Speed up rendering** - Return cached values instantly during change detection
+- **Minimize API calls** - Avoid duplicate network requests
+- **Improve responsiveness** - Make your UI feel snappier and more fluid
+
+## Getting started
+
+<CardGroup cols={3}>
+  <Card title="Installation" icon="download" href="/installation">
+    Install Ngememoize in your Angular project
+  </Card>
+  <Card title="Quick start" icon="rocket" href="/quickstart">
+    Start memoizing functions in minutes
+  </Card>
+  <Card title="Advanced options" icon="gear" href="/guides/advanced-options">
+    Learn about all available options
+  </Card>
+</CardGroup>
+
+## Angular compatibility
+
+Ngememoize is designed for modern Angular applications:
+
+- **Angular 19+** - Full support with peer dependency requirement
+- **Standalone components** - Works perfectly with the latest Angular patterns
+- **Signals-friendly** - Complements Angular's reactive primitives
+
+<Tip>
+  Ngememoize is tree-shakable and adds minimal overhead to your bundle size.
+</Tip>

@@ -1,0 +1,295 @@
+---
+title: Advanced options
+description: Configure Ngememoize with custom cache strategies, expiration, size limits, and callbacks
+---
+
+The `@Ngememoize` decorator accepts an optional configuration object that gives you fine-grained control over caching behavior.
+
+## Configuration interface
+
+All options are defined in the `MemoizeOptions` interface:
+
+```typescript
+interface MemoizeOptions<TArgs extends any[] = any[], TResult = any> {
+  maxAge?: number;
+  maxSize?: number;
+  keyGenerator?: KeyGeneratorFunction<TArgs>;
+  equals?: EqualityComparator<TResult>;
+  debugLabel?: string;
+  onCacheMiss?: (key: MemoizeKey) => void;
+  onCacheHit?: (key: MemoizeKey) => void;
+}
+```
+
+## Time-based expiration (maxAge)
+
+Set `maxAge` to automatically expire cache entries after a specified time in milliseconds.
+
+<Tabs>
+  <Tab title="Basic example">
+    ```typescript
+    @Ngememoize({
+      maxAge: 5000 // Cache for 5 seconds
+    })
+    calculateSubtotal(price: number, quantity: number): number {
+      return price * quantity;
+    }
+    ```
+
+    After 5 seconds, the cache entry is deleted and the next call recomputes the result.
+  </Tab>
+
+  <Tab title="Real-world usage">
+    ```typescript
+    import { Ngememoize } from 'ngememoize';
+
+    export class ProductComponent {
+      @Ngememoize({
+        maxAge: 5000,
+        keyGenerator: (price, quantity) => `subtotal-${price}-${quantity}`
+      })
+      calculateSubtotal(price: number, quantity: number): number {
+        console.log(`Computing subtotal for price: $${price} × ${quantity} items`);
+        return Number((price * quantity).toFixed(2));
+      }
+    }
+    ```
+
+    This example caches subtotal calculations for 5 seconds, perfect for shopping cart scenarios where prices might update periodically.
+  </Tab>
+</Tabs>
+
+<Note>
+  When `maxAge` is set, Ngememoize checks the timestamp on every cache hit and deletes expired entries automatically.
+</Note>
+
+## Cache size limits (maxSize)
+
+Set `maxSize` to limit the number of cached entries. When the limit is reached, Ngememoize evicts the oldest entry.
+
+```typescript
+@Ngememoize({
+  maxSize: 100 // Keep only 100 most recent results
+})
+searchProducts(query: string): Product[] {
+  // Expensive search operation
+  return this.products.filter(p => p.name.includes(query));
+}
+```
+
+The eviction strategy uses Least Recently Used (LRU) logic:
+
+1. When cache size reaches `maxSize`
+2. Ngememoize finds the entry with the oldest timestamp
+3. Deletes that entry before adding the new one
+
+<Warning>
+  Set `maxSize` carefully based on your memory constraints. Each cached entry stores the result value and metadata.
+</Warning>
+
+## Custom key generators (keyGenerator)
+
+By default, Ngememoize generates cache keys by serializing function arguments. You can customize this with `keyGenerator`.
+
+<Tabs>
+  <Tab title="Simple custom key">
+    ```typescript
+    @Ngememoize({
+      keyGenerator: (price, quantity) => `subtotal-${price}-${quantity}`
+    })
+    calculateSubtotal(price: number, quantity: number): number {
+      return price * quantity;
+    }
+    ```
+  </Tab>
+
+  <Tab title="Complex object keys">
+    ```typescript
+    interface SearchParams {
+      query: string;
+      category: string;
+      minPrice: number;
+      maxPrice: number;
+    }
+
+    @Ngememoize({
+      keyGenerator: (params: SearchParams) => 
+        `${params.query}-${params.category}-${params.minPrice}-${params.maxPrice}`
+    })
+    searchProducts(params: SearchParams): Product[] {
+      // Search logic
+    }
+    ```
+  </Tab>
+
+  <Tab title="Ignore certain parameters">
+    ```typescript
+    @Ngememoize({
+      // Only cache based on ID, ignore timestamp
+      keyGenerator: (id: string, timestamp: number) => id
+    })
+    fetchUserData(id: string, timestamp: number): User {
+      // Fetch user by ID
+    }
+    ```
+  </Tab>
+</Tabs>
+
+The `keyGenerator` function signature:
+
+```typescript
+type KeyGeneratorFunction<TArgs extends any[], TKey extends MemoizeKey = string> = 
+  (...args: TArgs) => TKey;
+```
+
+It receives the same arguments as your memoized function and returns a string, number, or symbol.
+
+## Custom equality comparison (equals)
+
+The `equals` option allows you to define custom logic for comparing cached results.
+
+```typescript
+interface User {
+  id: number;
+  name: string;
+  lastModified: Date;
+}
+
+@Ngememoize({
+  equals: (prev: User, next: User) => prev.id === next.id
+})
+getUser(id: number): User {
+  // Fetch user
+}
+```
+
+<Note>
+  The `equals` comparator is defined in the types but currently used internally. It's available for future enhancements to result comparison logic.
+</Note>
+
+## Debug labels (debugLabel)
+
+Add `debugLabel` to see cache activity in the console:
+
+```typescript
+@Ngememoize({
+  debugLabel: 'calculateSubtotal'
+})
+calculateSubtotal(price: number, quantity: number): number {
+  return price * quantity;
+}
+```
+
+Console output:
+
+```
+[Memoize: calculateSubtotal] Cache miss for key: 10-5
+[Memoize: calculateSubtotal] Cache hit for key: 10-5
+```
+
+Learn more about debugging in the [Debugging guide](/guides/debugging).
+
+## Cache callbacks
+
+### onCacheHit
+
+Execute custom logic when a cached value is returned:
+
+```typescript
+@Ngememoize({
+  onCacheHit: (key) => {
+    console.log(`Cache HIT: Subtotal calculation for ${key}`);
+  }
+})
+calculateSubtotal(price: number, quantity: number): number {
+  return price * quantity;
+}
+```
+
+### onCacheMiss
+
+Execute custom logic when the function needs to recompute:
+
+```typescript
+@Ngememoize({
+  onCacheMiss: (key) => {
+    console.log(`Cache MISS: Computing new subtotal for ${key}`);
+  }
+})
+calculateSubtotal(price: number, quantity: number): number {
+  return price * quantity;
+}
+```
+
+### Real-world example
+
+Here's a complete example from the Ngememoize source combining multiple options:
+
+```typescript
+import { Component } from '@angular/core';
+import { Ngememoize } from 'ngememoize';
+
+@Component({
+  selector: 'app-product',
+  standalone: true,
+})
+export class ProductComponent {
+  @Ngememoize({
+    maxAge: 5000,
+    keyGenerator: (price, quantity) => `subtotal-${price}-${quantity}`,
+    onCacheHit: (key) => 
+      console.log(`🎯 Cache HIT: Subtotal calculation for ${key}`),
+    onCacheMiss: (key) => 
+      console.log(`📝 Cache MISS: Computing new subtotal for ${key}`)
+  })
+  calculateSubtotal(price: number, quantity: number): number {
+    console.log(`💰 Computing subtotal for price: $${price} × ${quantity} items`);
+    return Number((price * quantity).toFixed(2));
+  }
+
+  @Ngememoize({
+    onCacheHit: (key) => 
+      console.log(`🎯 Cache HIT: Discount calculation for ${key}`),
+    onCacheMiss: (key) => 
+      console.log(`📝 Cache MISS: Computing new discount for ${key}`)
+  })
+  calculateDiscount(subtotal: number, code: string, quantity: number): number {
+    if (!code) return 0;
+
+    switch (code) {
+      case 'SAVE10':
+        return Number((subtotal * 0.1).toFixed(2));
+      case 'SAVE20':
+        return Number((subtotal * 0.2).toFixed(2));
+      case 'BULK15':
+        return quantity >= 5 ? Number((subtotal * 0.15).toFixed(2)) : 0;
+      default:
+        return 0;
+    }
+  }
+}
+```
+
+## Combining options
+
+You can combine multiple options for sophisticated caching strategies:
+
+```typescript
+@Ngememoize({
+  maxAge: 60000,        // Expire after 1 minute
+  maxSize: 50,          // Keep only 50 entries
+  debugLabel: 'search', // Enable debug logging
+  keyGenerator: (q) => q.toLowerCase(), // Case-insensitive caching
+  onCacheHit: (key) => this.metrics.recordHit(key),
+  onCacheMiss: (key) => this.metrics.recordMiss(key)
+})
+searchProducts(query: string): Product[] {
+  // Search implementation
+}
+```
+
+## Next steps
+
+- Learn how to [memoize async functions](/guides/async-functions)
+- Explore [debugging techniques](/guides/debugging) to monitor cache performance
+- Return to [basic usage](/guides/basic-usage) for fundamentals

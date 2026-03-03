@@ -1,80 +1,257 @@
 ---
-title: "Quickstart"
-description: "Start building awesome documentation in minutes"
+title: Quick start
+description: Start memoizing your Angular functions in minutes
 ---
 
-## Get started in three steps
+This guide will get you up and running with Ngememoize quickly. You'll learn how to memoize both synchronous and asynchronous functions with practical examples.
 
-Get your documentation site running locally and make your first customization.
+## Basic memoization
 
-### Step 1: Set up your local environment
+<Steps>
+  <Step title="Import the decorator">
+    Start by importing `@Ngememoize` in your component or service:
 
-<AccordionGroup>
-  <Accordion icon="copy" title="Clone your docs locally">
-    During the onboarding process, you created a GitHub repository with your docs content if you didn't already have one. You can find a link to this repository in your [dashboard](https://dashboard.mintlify.com).
-    
-    To clone the repository locally so that you can make and preview changes to your docs, follow the [Cloning a repository](https://docs.github.com/en/repositories/creating-and-managing-repositories/cloning-a-repository) guide in the GitHub docs.
-  </Accordion>
-  <Accordion icon="rectangle-terminal" title="Start the preview server">
-    1. Install the Mintlify CLI: `npm i -g mint`
-    2. Navigate to your docs directory and run: `mint dev`
-    3. Open `http://localhost:3000` to see your docs live!
-    
-    <Tip>Your preview updates automatically as you edit files.</Tip>
-  </Accordion>
-</AccordionGroup>
+    ```typescript
+    import { Component } from '@angular/core';
+    import { Ngememoize } from 'ngememoize';
+    ```
+  </Step>
 
-### Step 2: Deploy your changes
+  <Step title="Add the decorator to a method">
+    Apply `@Ngememoize()` to any method you want to cache:
 
-<AccordionGroup>
-  <Accordion icon="github" title="Install our GitHub app">
-    Install the Mintlify GitHub app from your [dashboard](https://dashboard.mintlify.com/settings/organization/github-app).
-    
-    Our GitHub app automatically deploys your changes to your docs site, so you don't need to manage deployments yourself.
-</Accordion>
-<Accordion icon="palette" title="Update your site name and colors">
-    For a first change, let's update the name and colors of your docs site.
+    ```typescript
+    @Component({
+      selector: 'app-product',
+      standalone: true,
+      template: '...'
+    })
+    export class ProductComponent {
+      @Ngememoize()
+      calculateSubtotal(price: number, quantity: number): number {
+        console.log('Computing subtotal...');
+        return price * quantity;
+      }
+    }
+    ```
 
-    1. Open `docs.json` in your editor.
-    2. Change the `"name"` field to your project name.
-    3. Update the `"colors"` to match your brand.
-    4. Save and see your changes instantly at `http://localhost:3000`.
+    Now when you call `calculateSubtotal(100, 2)` multiple times with the same arguments, the calculation only runs once.
+  </Step>
 
-    <Tip>Try changing the primary color to see an immediate difference!</Tip>
-  </Accordion>
-</AccordionGroup>
+  <Step title="Test the cache">
+    Call your memoized method multiple times:
 
-### Step 3: Go live
+    ```typescript
+    // First call - executes the function
+    const result1 = this.calculateSubtotal(100, 2); // Logs: "Computing subtotal..."
+    console.log(result1); // 200
 
-<Accordion icon="rocket" title="Publish your docs">
-  1. Commit and push your changes.
-  2. Your docs will update and be live in moments!
-</Accordion>
+    // Second call - returns cached result
+    const result2 = this.calculateSubtotal(100, 2); // No log!
+    console.log(result2); // 200 (instant)
+
+    // Different arguments - executes the function again
+    const result3 = this.calculateSubtotal(50, 3); // Logs: "Computing subtotal..."
+    console.log(result3); // 150
+    ```
+  </Step>
+</Steps>
+
+## Memoizing getters
+
+You can also memoize getters to cache computed properties:
+
+```typescript
+import { Ngememoize } from 'ngememoize';
+
+export class UserComponent {
+  users: User[] = [];
+
+  @Ngememoize()
+  get adminUsers(): User[] {
+    console.log('Filtering admin users...');
+    return this.users.filter(user => user.role === 'admin');
+  }
+}
+```
+
+The getter result is cached until the component state changes.
+
+<Note>
+  Getters are memoized without arguments. The cache is based on the context in which they're called.
+</Note>
+
+## Async function memoization
+
+Ngememoize works seamlessly with async functions and Promises:
+
+```typescript
+import { Ngememoize } from 'ngememoize';
+
+export class DataService {
+  @Ngememoize({
+    maxAge: 5000, // Cache for 5 seconds
+    debugLabel: 'fetchData'
+  })
+  async fetchData(id: string): Promise<string> {
+    console.log('Fetching data from API...');
+    const response = await fetch(`/api/data/${id}`);
+    return response.json();
+  }
+}
+```
+
+Subsequent calls within 5 seconds return the cached Promise result instantly.
+
+## Adding cache expiration
+
+Control how long results stay cached using the `maxAge` option:
+
+```typescript
+@Ngememoize({
+  maxAge: 5000 // Cache expires after 5 seconds
+})
+calculateDiscount(subtotal: number, code: string): number {
+  console.log('Computing discount...');
+  if (code === 'SAVE10') return subtotal * 0.1;
+  if (code === 'SAVE20') return subtotal * 0.2;
+  return 0;
+}
+```
+
+After 5 seconds, the cache is invalidated and the function runs again on the next call.
+
+## Custom cache keys
+
+By default, Ngememoize generates cache keys from all arguments. You can customize this:
+
+```typescript
+@Ngememoize({
+  keyGenerator: (price, quantity) => `subtotal-${price}-${quantity}`
+})
+calculateSubtotal(price: number, quantity: number): number {
+  return price * quantity;
+}
+```
+
+This is useful when you want explicit control over what makes results unique.
+
+## Debugging cache behavior
+
+Use the `debugLabel` option to see cache hits and misses in the console:
+
+```typescript
+@Ngememoize({
+  debugLabel: 'calculateShipping',
+  onCacheHit: (key) => console.log(`✅ Cache hit for ${key}`),
+  onCacheMiss: (key) => console.log(`❌ Cache miss for ${key}`)
+})
+calculateShipping(method: string, subtotal: number): number {
+  switch (method) {
+    case 'express': return subtotal > 100 ? 10 : 15;
+    case 'overnight': return subtotal > 150 ? 20 : 25;
+    default: return 0;
+  }
+}
+```
+
+Now you'll see logs like:
+```
+[Memoize: calculateShipping] Cache miss for key: express-150
+❌ Cache miss for express-150
+[Memoize: calculateShipping] Cache hit for key: express-150
+✅ Cache hit for express-150
+```
+
+## Real-world example
+
+Here's a complete example from a product pricing component:
+
+```typescript
+import { Component, inject } from '@angular/core';
+import { Ngememoize, NgememoizeService } from 'ngememoize';
+
+@Component({
+  selector: 'app-product',
+  standalone: true,
+  template: '...'
+})
+export class ProductComponent {
+  memoizeService = inject(NgememoizeService);
+
+  product = {
+    basePrice: 100,
+    quantity: 2,
+    discountCode: 'SAVE10',
+    shipping: 'express'
+  };
+
+  @Ngememoize({
+    maxAge: 5000,
+    keyGenerator: (price, quantity) => `subtotal-${price}-${quantity}`,
+    onCacheHit: (key) => console.log(`🎯 Cache HIT: ${key}`),
+    onCacheMiss: (key) => console.log(`📝 Cache MISS: ${key}`)
+  })
+  calculateSubtotal(price: number, quantity: number): number {
+    console.log('💰 Computing subtotal...');
+    return Number((price * quantity).toFixed(2));
+  }
+
+  @Ngememoize()
+  calculateDiscount(subtotal: number, code: string, quantity: number): number {
+    console.log('🏷️ Computing discount...');
+    if (code === 'SAVE10') return Number((subtotal * 0.1).toFixed(2));
+    if (code === 'SAVE20') return Number((subtotal * 0.2).toFixed(2));
+    if (code === 'BULK15' && quantity >= 5) return Number((subtotal * 0.15).toFixed(2));
+    return 0;
+  }
+
+  @Ngememoize()
+  calculateShipping(method: string, subtotal: number): number {
+    console.log('📦 Computing shipping...');
+    if (method === 'express') return subtotal > 100 ? 10 : 15;
+    if (method === 'overnight') return subtotal > 150 ? 20 : 25;
+    return 0;
+  }
+
+  calculateTotal() {
+    const subtotal = this.calculateSubtotal(
+      this.product.basePrice,
+      this.product.quantity
+    );
+    const discount = this.calculateDiscount(
+      subtotal,
+      this.product.discountCode,
+      this.product.quantity
+    );
+    const shipping = this.calculateShipping(
+      this.product.shipping,
+      subtotal
+    );
+    return subtotal - discount + shipping;
+  }
+}
+```
+
+<Tip>
+  Use `inject(NgememoizeService)` to access cache statistics and inspect all cached values. This is helpful during development.
+</Tip>
 
 ## Next steps
 
-Now that you have your docs running, explore these key features:
+Now that you understand the basics, explore more advanced features:
 
 <CardGroup cols={2}>
-
-<Card title="Write Content" icon="pen-to-square" href="/essentials/markdown">
-  Learn MDX syntax and start writing your documentation.
-</Card>
-
-<Card title="Customize style" icon="palette" href="/essentials/settings">
-  Make your docs match your brand perfectly.
-</Card>
-
-<Card title="Add code examples" icon="square-code" href="/essentials/code">
-  Include syntax-highlighted code blocks.
-</Card>
-
-<Card title="API documentation" icon="code" href="/api-reference/introduction">
-  Auto-generate API docs from OpenAPI specs.
-</Card>
-
+  <Card title="Advanced options" icon="sliders" href="/guides/advanced-options">
+    Learn about all decorator options
+  </Card>
+  <Card title="Cache management" icon="database" href="/concepts/cache-management">
+    Control cache size and lifetime
+  </Card>
+  <Card title="Custom key generators" icon="key" href="/concepts/key-generation">
+    Create advanced caching strategies
+  </Card>
+  <Card title="Debugging" icon="bug" href="/guides/debugging">
+    Monitor cache performance and troubleshoot issues
+  </Card>
 </CardGroup>
-
-<Note>
-  **Need help?** See our [full documentation](https://mintlify.com/docs) or join our [community](https://mintlify.com/community).
-</Note>

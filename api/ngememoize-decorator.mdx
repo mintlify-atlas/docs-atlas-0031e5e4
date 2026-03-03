@@ -1,0 +1,218 @@
+---
+title: "@Ngememoize Decorator"
+description: "Decorator that memoizes the result of a method or getter"
+---
+
+## Overview
+
+The `@Ngememoize` decorator caches the result of a method or getter, improving performance by avoiding redundant computations for the same inputs.
+
+## Function Signature
+
+```typescript
+function Ngememoize<TArgs extends any[] = any[], TResult = any>(
+  options?: MemoizeOptions<TArgs, TResult>
+): MethodDecorator
+```
+
+## Parameters
+
+<ParamField path="options" type="MemoizeOptions<TArgs, TResult>" default="{}">
+  Configuration options for memoization behavior.
+
+  <Expandable title="MemoizeOptions properties">
+    <ParamField path="maxAge" type="number" optional>
+      The maximum age of cache entries in milliseconds. Entries older than this will be invalidated.
+    </ParamField>
+
+    <ParamField path="maxSize" type="number" optional>
+      The maximum number of cache entries. When exceeded, the oldest entry is removed.
+    </ParamField>
+
+    <ParamField path="keyGenerator" type="KeyGeneratorFunction<TArgs>" optional>
+      Custom function to generate cache keys from method arguments.
+      
+      ```typescript
+      type KeyGeneratorFunction<TArgs extends any[]> = (...args: TArgs) => MemoizeKey
+      ```
+    </ParamField>
+
+    <ParamField path="equals" type="EqualityComparator<TResult>" optional>
+      Custom equality comparator for cached results.
+      
+      ```typescript
+      type EqualityComparator<T> = (prev: T, next: T) => boolean
+      ```
+    </ParamField>
+
+    <ParamField path="debugLabel" type="string" optional>
+      A label for debugging purposes. When set, cache hits/misses are logged to the console.
+    </ParamField>
+
+    <ParamField path="onCacheHit" type="(key: MemoizeKey) => void" optional>
+      Callback invoked when a cache hit occurs.
+    </ParamField>
+
+    <ParamField path="onCacheMiss" type="(key: MemoizeKey) => void" optional>
+      Callback invoked when a cache miss occurs.
+    </ParamField>
+  </Expandable>
+</ParamField>
+
+## Return Value
+
+Returns a method decorator that can be applied to class methods or getters.
+
+## Type Parameters
+
+<ParamField path="TArgs" type="any[]" default="any[]">
+  The type of the method arguments array.
+</ParamField>
+
+<ParamField path="TResult" type="any" default="any">
+  The return type of the memoized method.
+</ParamField>
+
+## Usage Examples
+
+### Basic Method Memoization
+
+```typescript
+import { Component } from '@angular/core';
+import { Ngememoize } from 'ngememoize';
+
+@Component({
+  selector: 'app-calculator',
+  template: '...'
+})
+export class CalculatorComponent {
+  @Ngememoize()
+  expensiveCalculation(x: number, y: number): number {
+    console.log('Computing...');
+    return x * y + Math.random();
+  }
+}
+```
+
+### With maxAge Option
+
+```typescript
+@Component({
+  selector: 'app-data',
+  template: '...'
+})
+export class DataComponent {
+  // Cache expires after 5 seconds
+  @Ngememoize({ maxAge: 5000 })
+  fetchData(id: string): Observable<Data> {
+    return this.http.get<Data>(`/api/data/${id}`);
+  }
+}
+```
+
+### With maxSize Option
+
+```typescript
+@Component({
+  selector: 'app-search',
+  template: '...'
+})
+export class SearchComponent {
+  // Keep only last 10 results
+  @Ngememoize({ maxSize: 10 })
+  search(query: string): string[] {
+    return this.performSearch(query);
+  }
+}
+```
+
+### With Custom Key Generator
+
+```typescript
+@Component({
+  selector: 'app-user',
+  template: '...'
+})
+export class UserComponent {
+  @Ngememoize({
+    keyGenerator: (user) => user.id.toString()
+  })
+  processUser(user: User): ProcessedUser {
+    return this.transform(user);
+  }
+}
+```
+
+### With Cache Callbacks
+
+```typescript
+@Component({
+  selector: 'app-analytics',
+  template: '...'
+})
+export class AnalyticsComponent {
+  @Ngememoize({
+    onCacheHit: (key) => console.log('Cache hit:', key),
+    onCacheMiss: (key) => console.log('Cache miss:', key)
+  })
+  analyzeData(dataset: number[]): AnalysisResult {
+    return this.runAnalysis(dataset);
+  }
+}
+```
+
+### With Debug Label
+
+```typescript
+@Component({
+  selector: 'app-report',
+  template: '...'
+})
+export class ReportComponent {
+  @Ngememoize({ debugLabel: 'generateReport' })
+  generateReport(params: ReportParams): Report {
+    return this.buildReport(params);
+  }
+}
+```
+
+### Memoizing Getters
+
+```typescript
+@Component({
+  selector: 'app-computed',
+  template: '{{ expensiveValue }}'
+})
+export class ComputedComponent {
+  @Ngememoize()
+  get expensiveValue(): number {
+    console.log('Computing expensive value...');
+    return this.heavyComputation();
+  }
+}
+```
+
+### With Promise/Observable Support
+
+```typescript
+@Component({
+  selector: 'app-async',
+  template: '...'
+})
+export class AsyncComponent {
+  @Ngememoize({ maxAge: 60000 })
+  async loadUser(id: string): Promise<User> {
+    const response = await fetch(`/api/users/${id}`);
+    return response.json();
+  }
+}
+```
+
+## Behavior Notes
+
+- The decorator automatically filters out `null` and `undefined` arguments before caching
+- For Promise-based methods, the cache stores the Promise result after resolution
+- Empty arrays and falsy values are not cached
+- Cache identifiers are automatically generated as `ClassName_methodName`
+- When `maxSize` is exceeded, the oldest cache entry (by timestamp) is removed
+- When `maxAge` is set, expired entries are removed on the next access attempt

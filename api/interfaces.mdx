@@ -1,0 +1,316 @@
+---
+title: "Interfaces"
+description: "Interface definitions for Ngememoize"
+---
+
+## Overview
+
+This page documents all exported interfaces used in the Ngememoize library.
+
+## MemoizeOptions
+
+Configuration options for the memoization behavior.
+
+```typescript
+interface MemoizeOptions<TArgs extends any[] = any[], TResult = any> {
+  maxAge?: number;
+  maxSize?: number;
+  keyGenerator?: KeyGeneratorFunction<TArgs>;
+  equals?: EqualityComparator<TResult>;
+  debugLabel?: string;
+  onCacheMiss?: (key: MemoizeKey) => void;
+  onCacheHit?: (key: MemoizeKey) => void;
+}
+```
+
+### Type Parameters
+
+<ParamField path="TArgs" type="any[]" default="any[]">
+  The type of arguments array for the memoized function.
+</ParamField>
+
+<ParamField path="TResult" type="any" default="any">
+  The return type of the memoized function.
+</ParamField>
+
+### Properties
+
+<ResponseField name="maxAge" type="number">
+  The maximum age of cache entries in milliseconds. Entries older than this value will be invalidated on the next access.
+</ResponseField>
+
+<ResponseField name="maxSize" type="number">
+  The maximum number of cache entries. When the limit is exceeded, the oldest entry (by timestamp) is removed.
+</ResponseField>
+
+<ResponseField name="keyGenerator" type="KeyGeneratorFunction<TArgs>">
+  A custom function to generate cache keys from method arguments. Defaults to a built-in key generator.
+  
+  ```typescript
+  type KeyGeneratorFunction<TArgs extends any[]> = (...args: TArgs) => MemoizeKey
+  ```
+</ResponseField>
+
+<ResponseField name="equals" type="EqualityComparator<TResult>">
+  A custom equality comparator for cached results. Defaults to a built-in equality function.
+  
+  ```typescript
+  type EqualityComparator<T> = (prev: T, next: T) => boolean
+  ```
+</ResponseField>
+
+<ResponseField name="debugLabel" type="string">
+  A label for debugging purposes. When set, cache hits and misses are logged to the console with this label.
+</ResponseField>
+
+<ResponseField name="onCacheMiss" type="(key: MemoizeKey) => void">
+  Callback function invoked when a cache miss occurs. Receives the generated cache key.
+</ResponseField>
+
+<ResponseField name="onCacheHit" type="(key: MemoizeKey) => void">
+  Callback function invoked when a cache hit occurs. Receives the generated cache key.
+</ResponseField>
+
+### Example
+
+```typescript
+import { Component } from '@angular/core';
+import { Ngememoize, MemoizeOptions } from 'ngememoize';
+
+@Component({
+  selector: 'app-data',
+  template: '...'
+})
+export class DataComponent {
+  private options: MemoizeOptions<[string], User> = {
+    maxAge: 60000, // 1 minute
+    maxSize: 100,
+    debugLabel: 'fetchUser',
+    keyGenerator: (id) => `user_${id}`,
+    onCacheHit: (key) => console.log('Hit:', key),
+    onCacheMiss: (key) => console.log('Miss:', key)
+  };
+
+  @Ngememoize(this.options)
+  fetchUser(id: string): User {
+    return this.loadUserFromAPI(id);
+  }
+}
+```
+
+---
+
+## CacheEntry
+
+Represents a cache entry containing a value and its metadata.
+
+```typescript
+interface CacheEntry<T> {
+  value: T;
+  timestamp: number;
+  generatedKey?: string;
+  dependencies?: DependencyArray;
+}
+```
+
+### Type Parameters
+
+<ParamField path="T" type="any">
+  The type of the cached value.
+</ParamField>
+
+### Properties
+
+<ResponseField name="value" type="T" required>
+  The cached value. This is the actual result of the memoized function.
+</ResponseField>
+
+<ResponseField name="timestamp" type="number" required>
+  The timestamp (in milliseconds) when the entry was created. Used for age-based invalidation and LRU eviction.
+</ResponseField>
+
+<ResponseField name="generatedKey" type="string">
+  An optional generated key for the cache entry. This is the key produced by the `keyGenerator` function.
+</ResponseField>
+
+<ResponseField name="dependencies" type="DependencyArray">
+  An optional array of dependencies associated with the cache entry.
+  
+  ```typescript
+  interface DependencyArray extends Array<any> {}
+  ```
+</ResponseField>
+
+### Example
+
+```typescript
+import { Component, inject } from '@angular/core';
+import { NgememoizeService, CacheEntry } from 'ngememoize';
+
+@Component({
+  selector: 'app-inspector',
+  template: '...'
+})
+export class InspectorComponent {
+  private memoizeService = inject(NgememoizeService);
+
+  inspectCacheEntries() {
+    const cache = this.memoizeService.getCache<User>('UserService_getUser');
+    
+    cache.forEach((entry: CacheEntry<User>, key) => {
+      console.log('Cache Key:', key);
+      console.log('Stored Value:', entry.value);
+      console.log('Created:', new Date(entry.timestamp));
+      console.log('Age (seconds):', (Date.now() - entry.timestamp) / 1000);
+      
+      if (entry.generatedKey) {
+        console.log('Generated Key:', entry.generatedKey);
+      }
+    });
+  }
+}
+```
+
+---
+
+## CacheStats
+
+Statistics about a cache, including size and access rates.
+
+```typescript
+interface CacheStats {
+  size: number;
+  lastAccessed: number;
+  hitRate: number;
+  missRate: number;
+}
+```
+
+### Properties
+
+<ResponseField name="size" type="number" required>
+  The current number of entries in the cache.
+</ResponseField>
+
+<ResponseField name="lastAccessed" type="number" required>
+  The timestamp (in milliseconds) of the most recent cache access. This is the maximum timestamp across all cache entries.
+</ResponseField>
+
+<ResponseField name="hitRate" type="number" required>
+  The cache hit rate, calculated as `hits / (hits + misses)`. Value ranges from 0 to 1.
+</ResponseField>
+
+<ResponseField name="missRate" type="number" required>
+  The cache miss rate, calculated as `misses / (hits + misses)`. Value ranges from 0 to 1.
+</ResponseField>
+
+### Example
+
+```typescript
+import { Component, inject, OnInit } from '@angular/core';
+import { NgememoizeService, CacheStats } from 'ngememoize';
+import { interval } from 'rxjs';
+
+@Component({
+  selector: 'app-performance-dashboard',
+  template: `
+    <div class="cache-stats">
+      <h2>Cache Performance</h2>
+      <div *ngFor="let stat of statsArray">
+        <h3>{{ stat.identifier }}</h3>
+        <p>Size: {{ stat.stats.size }} entries</p>
+        <p>Hit Rate: {{ (stat.stats.hitRate * 100).toFixed(2) }}%</p>
+        <p>Miss Rate: {{ (stat.stats.missRate * 100).toFixed(2) }}%</p>
+        <p>Last Accessed: {{ stat.stats.lastAccessed | date:'medium' }}</p>
+        <p [class.efficient]="stat.stats.hitRate > 0.7"
+           [class.inefficient]="stat.stats.hitRate < 0.3">
+          Efficiency: {{ getEfficiencyLabel(stat.stats.hitRate) }}
+        </p>
+      </div>
+    </div>
+  `
+})
+export class PerformanceDashboardComponent implements OnInit {
+  private memoizeService = inject(NgememoizeService);
+  statsArray: { identifier: string; stats: CacheStats }[] = [];
+
+  ngOnInit() {
+    // Update stats every 5 seconds
+    interval(5000).subscribe(() => {
+      this.updateStats();
+    });
+    this.updateStats();
+  }
+
+  updateStats() {
+    const allStats = this.memoizeService.getCacheStats();
+    this.statsArray = Object.entries(allStats).map(([identifier, stats]) => ({
+      identifier,
+      stats
+    }));
+  }
+
+  getEfficiencyLabel(hitRate: number): string {
+    if (hitRate > 0.8) return 'Excellent';
+    if (hitRate > 0.6) return 'Good';
+    if (hitRate > 0.4) return 'Fair';
+    return 'Poor';
+  }
+}
+```
+
+### Calculating Rates
+
+The hit rate and miss rate are calculated as follows:
+
+```typescript
+const total = hits + misses;
+const hitRate = total ? hits / total : 0;
+const missRate = total ? misses / total : 0;
+```
+
+If there are no recorded hits or misses, both rates will be `0`.
+
+### Example: Monitoring Cache Efficiency
+
+```typescript
+import { Component, inject } from '@angular/core';
+import { NgememoizeService, CacheStats } from 'ngememoize';
+
+@Component({
+  selector: 'app-cache-monitor',
+  template: '...'
+})
+export class CacheMonitorComponent {
+  private memoizeService = inject(NgememoizeService);
+
+  checkCacheEfficiency(identifier: string): void {
+    const allStats = this.memoizeService.getCacheStats();
+    const stats: CacheStats | undefined = allStats[identifier];
+
+    if (!stats) {
+      console.warn(`No stats found for cache: ${identifier}`);
+      return;
+    }
+
+    console.log(`Cache: ${identifier}`);
+    console.log(`  Entries: ${stats.size}`);
+    console.log(`  Hit Rate: ${(stats.hitRate * 100).toFixed(2)}%`);
+    console.log(`  Miss Rate: ${(stats.missRate * 100).toFixed(2)}%`);
+    
+    // Alert if cache is underperforming
+    if (stats.hitRate < 0.5 && stats.size > 0) {
+      console.warn(`Low hit rate detected for ${identifier}`);
+    }
+  }
+
+  getCacheAge(identifier: string): number {
+    const allStats = this.memoizeService.getCacheStats();
+    const stats: CacheStats | undefined = allStats[identifier];
+    
+    if (!stats) return 0;
+    
+    return Date.now() - stats.lastAccessed;
+  }
+}
+```
